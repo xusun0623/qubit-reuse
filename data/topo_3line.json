@@ -1,0 +1,35 @@
+{
+  "name": "square_3x1",
+  "nodes": [
+    {
+      "id": 0,
+      "attr": {
+        "role": "data"
+      }
+    },
+    {
+      "id": 1,
+      "attr": {
+        "role": "data"
+      }
+    },
+    {
+      "id": 2,
+      "attr": {
+        "role": "data"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "u": 0,
+      "v": 1,
+      "attr": {}
+    },
+    {
+      "u": 1,
+      "v": 2,
+      "attr": {}
+    }
+  ]
+}

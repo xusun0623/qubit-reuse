@@ -1,0 +1,95 @@
+{
+  "name": "heavy_square_2x2",
+  "nodes": [
+    {
+      "id": 0,
+      "attr": {
+        "role": "data"
+      }
+    },
+    {
+      "id": 1,
+      "attr": {
+        "role": "data"
+      }
+    },
+    {
+      "id": 2,
+      "attr": {
+        "role": "data"
+      }
+    },
+    {
+      "id": 3,
+      "attr": {
+        "role": "data"
+      }
+    },
+    {
+      "id": 4,
+      "attr": {
+        "role": "ancilla"
+      }
+    },
+    {
+      "id": 5,
+      "attr": {
+        "role": "ancilla"
+      }
+    },
+    {
+      "id": 6,
+      "attr": {
+        "role": "ancilla"
+      }
+    },
+    {
+      "id": 7,
+      "attr": {
+        "role": "ancilla"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "u": 0,
+      "v": 4,
+      "attr": {}
+    },
+    {
+      "u": 0,
+      "v": 5,
+      "attr": {}
+    },
+    {
+      "u": 1,
+      "v": 4,
+      "attr": {}
+    },
+    {
+      "u": 1,
+      "v": 6,
+      "attr": {}
+    },
+    {
+      "u": 2,
+      "v": 5,
+      "attr": {}
+    },
+    {
+      "u": 2,
+      "v": 7,
+      "attr": {}
+    },
+    {
+      "u": 3,
+      "v": 6,
+      "attr": {}
+    },
+    {
+      "u": 3,
+      "v": 7,
+      "attr": {}
+    }
+  ]
+}
