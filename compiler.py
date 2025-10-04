@@ -1,7 +1,3 @@
-"""
-Time-aware compiler for quantum circuits.
-"""
-
 import time
 import math
 import copy
