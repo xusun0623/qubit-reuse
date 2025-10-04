@@ -1,7 +1,7 @@
 from qiskit import QuantumCircuit
 
-from circuit import CircuitManager
-from quantum_topology import ChipTopology
+from circuit import QuantumCircuitManager
+from quantum_chip import QuantumChip
 from hardware import HardwareParams
 from compiler import TimeAwareCompiler
 
@@ -19,16 +19,16 @@ def example_usage():
     measure q[2] -> c[2];
     """
     )
-    circuit_manager: CircuitManager = CircuitManager.from_qiskit_circuit(qc)
+    circuit_manager: QuantumCircuitManager = QuantumCircuitManager.from_qiskit_circuit(qc)
     circuit_manager.get_dag()
     circuit_manager.write_qasm("./data/example_circ.qasm")
 
-    topo = ChipTopology.square_grid(8, 1)
+    topo = QuantumChip.square_chip(8, 1)
     topo.visualize()
 
     # topo.save_json("./data/topo_3line.json")
 
-    heavy = ChipTopology.heavy_square(2, 2)
+    heavy = QuantumChip.heavy_square_chip(2, 2)
     heavy.visualize()
     # heavy.save_json("./data/heavy_square_2x2.json")
 

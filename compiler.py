@@ -15,8 +15,8 @@ except Exception:
     ORTOOLS_AVAILABLE = False
 
 from hardware import HardwareParams
-from quantum_topology import ChipTopology
-from circuit import CircuitManager
+from quantum_chip import QuantumChip
+from circuit import QuantumCircuitManager
 
 
 class TimeAwareCompiler:
@@ -37,7 +37,7 @@ class TimeAwareCompiler:
        - metrics
     """
 
-    def __init__(self, circuit_mgr: CircuitManager, topo: ChipTopology, hw: HardwareParams, params: Optional[Dict] = None):
+    def __init__(self, circuit_mgr: QuantumCircuitManager, topo: QuantumChip, hw: HardwareParams, params: Optional[Dict] = None):
         self.circuit_mgr = circuit_mgr
         self.topo = topo
         self.hw = hw
