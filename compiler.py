@@ -140,7 +140,7 @@ class TimeAwareCompiler:
             return math.inf
         # For swaps to bring two qubits adjacent, need ~d-1 swaps (depends on scheme).
         # approximate total swap time:
-        avg_t2q = self.hw.t_2q
+        avg_t2q = self.hw.time_2q
         # factor 3 as conservative SWAP cost (hardware dependent)
         return max(0, d - 1) * avg_t2q * 3.0
 
@@ -275,7 +275,7 @@ class TimeAwareCompiler:
                     phys = phys_args
                     start = max([self.occupied_until[p]
                                 for p in phys] + [ready_time])
-                    dur = self.hw.t_2q * (len(phys)-1)  # crude
+                    dur = self.hw.time_2q * (len(phys)-1)  # crude
                     self.timeline_ops.append(
                         {"type": "kQ", "op": opname, "qargs": qargs, "p": phys, "start": start, "dur": dur})
                     for p in phys:

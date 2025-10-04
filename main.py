@@ -7,7 +7,8 @@ from compiler import TimeAwareCompiler
 
 
 def example_usage():
-    qc = QuantumCircuit.from_qasm_str("""
+    qc = QuantumCircuit.from_qasm_str(
+        """
     OPENQASM 2.0;
     include "qelib1.inc";
     qreg q[3];
@@ -16,25 +17,38 @@ def example_usage():
     cx q[0], q[1];
     cx q[1], q[2];
     measure q[2] -> c[2];
-    """)
-    circuit_manager = CircuitManager.from_qiskit_circuit(qc)
+    """
+    )
+    circuit_manager: CircuitManager = CircuitManager.from_qiskit_circuit(qc)
+    circuit_manager.get_dag()
     circuit_manager.write_qasm("./data/example_circ.qasm")
 
-    topo = ChipTopology.square_grid(3, 1)
-    topo.save_json("./data/topo_3line.json")
+    topo = ChipTopology.square_grid(8, 1)
+    topo.visualize()
+
+    # topo.save_json("./data/topo_3line.json")
 
     heavy = ChipTopology.heavy_square(2, 2)
-    heavy.save_json("./data/heavy_square_2x2.json")
+    heavy.visualize()
+    # heavy.save_json("./data/heavy_square_2x2.json")
 
     hardware_param = HardwareParams(
-        t_1q=50.0,
-        t_2q=300.0,
-        t_meas=4000.0,
-        t_reset=1000.0,
+        time_1q=50.0,
+        time_2q=300.0,
+        time_meas=4000.0,
+        time_reset=1000.0,
     )
 
-    compiler = TimeAwareCompiler(circuit_manager, topo, hardware_param, params={
-                                 "lambda_makespan": 1.0, "lambda_swap": 1.0, "lambda_idle": 0.5})
+    compiler = TimeAwareCompiler(
+        circuit_manager,
+        topo,
+        hardware_param,
+        params={
+            "lambda_makespan": 1.0,
+            "lambda_swap": 1.0,
+            "lambda_idle": 0.5
+        }
+    )
     result = compiler.schedule(strategy="windowed_greedy")
     print("Metrics:", result["metrics"])
     return result
