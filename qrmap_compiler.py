@@ -9,32 +9,52 @@ import copy
 
 
 class QRMapCompiler:
-    """QR-Map编译器"""
+    """QR-Map编译器 - 用于量子电路优化，特别是通过量子比特重用减少物理量子比特需求"""
 
     def __init__(self, quantum_circuit: QuantumCircuit, quantum_chip: QuantumChip, 
                  hardware_params: HardwareParams = None, params: Optional[Dict] = None):
+        """
+        初始化QR-Map编译器
+        
+        Args:
+            quantum_circuit: 待优化的量子电路
+            quantum_chip: 量子芯片信息
+            hardware_params: 硬件参数
+            params: 编译器参数
+        """
         self.quantum_circuit = quantum_circuit
         self.quantum_chip = quantum_chip
         self.hardware_params = hardware_params
         self.params = params or {}
         
         # QR-Map参数
-        self.idling_threshold = self.params.get('idling_threshold', None)  # 空闲时间阈值
-        self.use_most_qubit_rule = self.params.get('use_most_qubit_rule', True)  # 是否使用最多量子位规则
+        self.idling_threshold = self.params.get('idling_threshold', None)  # 空闲时间阈值，用于判断何时可以重用量子比特
+        self.use_most_qubit_rule = self.params.get('use_most_qubit_rule', True)  # 是否使用最多量子位规则选择pivot列
         
         # 内部状态
-        self.qr_map = None
-        self.optimized_map = None
-        self.gate_dependencies = None
-        self.qubit_reuse_count = 0
+        self.qr_map = None  # 原始QR-Map数据结构
+        self.optimized_map = None  # 优化后的QR-Map数据结构
+        self.gate_dependencies = None  # 门依赖关系
+        self.qubit_reuse_count = 0  # 量子比特重用次数
 
     def export_matrix_to_csv(self, mat, filename="qubit_matrix.csv"):
-        """导出矩阵到CSV文件"""
+        """
+        导出矩阵到CSV文件，用于可视化和调试
+        
+        Args:
+            mat: 要导出的矩阵
+            filename: 导出文件名
+        """
         df = pd.DataFrame(mat)
         df.to_csv(filename, index=False, header=False)
 
     def schedule(self):
-        """主调度函数"""
+        """
+        主调度函数 - 执行完整的QR-Map优化流程
+        
+        Returns:
+            优化后的量子电路
+        """
         print("开始QR-Map调度...")
         
         # 1. 提取两量子比特门
@@ -54,9 +74,15 @@ class QRMapCompiler:
         return optimized_circuit
 
     def extract_two_qubit_gates(self):
-        """提取两量子比特门及其相关单量子比特门"""
+        """
+        提取两量子比特门及其相关单量子比特门
+        将电路中的门组织成以两量子比特门为中心的组
+        
+        Returns:
+            两量子比特门信息列表
+        """
         two_qubit_gates = []
-        current_gate_groups = defaultdict(list)
+        current_gate_groups = defaultdict(list)  # 用于收集单量子比特门
         
         for instruction in self.quantum_circuit.data:
             gate = instruction.operation
@@ -68,7 +94,7 @@ class QRMapCompiler:
                     'type': 'two_qubit',
                     'gate': gate,
                     'qubits': qubits,
-                    'single_qubit_gates': {},
+                    'single_qubit_gates': {},  # 关联的单量子比特门
                     'name': gate.name
                 }
                 
@@ -92,16 +118,22 @@ class QRMapCompiler:
         return two_qubit_gates
 
     def build_qr_map(self, two_qubit_gates):
-        """构建QR-Map数据结构"""
+        """
+        构建QR-Map数据结构
+        QR-Map是一个矩阵表示，行代表门，列表示量子比特
+        
+        Args:
+            two_qubit_gates: 两量子比特门信息列表
+        """
         num_gates = len(two_qubit_gates)
         num_qubits = self.quantum_circuit.num_qubits
         
         # 初始化QR-Map
         self.qr_map = {
-            'array': np.zeros((num_gates, num_qubits), dtype=int),
-            'gate_info': [],
-            'vertical_lines': np.zeros((num_gates, num_qubits), dtype=bool),
-            'qubit_usage': [set() for _ in range(num_qubits)]
+            'array': np.zeros((num_gates, num_qubits), dtype=int),  # 主矩阵，存储门信息
+            'gate_info': [],  # 门详细信息
+            'vertical_lines': np.zeros((num_gates, num_qubits), dtype=bool),  # 垂直依赖线
+            'qubit_usage': [set() for _ in range(num_qubits)]  # 每个量子比特的使用情况
         }
         
         # 填充门信息
@@ -126,7 +158,10 @@ class QRMapCompiler:
         self.export_matrix_to_csv(self.qr_map['array'], "initial_qr_map.csv")
 
     def _build_vertical_lines(self):
-        """构建垂直依赖线"""
+        """
+        构建垂直依赖线
+        垂直线表示量子比特在两个门之间的活跃状态
+        """
         num_gates, num_qubits = self.qr_map['array'].shape
         
         for qubit in range(num_qubits):
@@ -142,7 +177,10 @@ class QRMapCompiler:
                 self.qr_map['vertical_lines'][gate_idx, qubit] = True
 
     def apply_tapering(self):
-        """应用Tapering算法"""
+        """
+        应用Tapering算法
+        通过移动门来优化量子比特使用，实现量子比特重用
+        """
         if self.qr_map is None:
             raise ValueError("QR-Map未构建")
             
@@ -181,7 +219,16 @@ class QRMapCompiler:
         print("Tapering算法完成")
 
     def _select_pivot(self, qr_map):
-        """选择pivot列"""
+        """
+        选择pivot列
+        Pivot列是优化过程中的参考列
+        
+        Args:
+            qr_map: QR-Map数据结构
+            
+        Returns:
+            pivot列索引
+        """
         array = qr_map['array']
         num_columns = array.shape[1]
         
@@ -195,14 +242,34 @@ class QRMapCompiler:
             return np.argmin(gate_counts)
 
     def _select_direction(self, pivot, num_columns):
-        """选择移动方向"""
+        """
+        选择移动方向
+        
+        Args:
+            pivot: pivot列索引
+            num_columns: 总列数
+            
+        Returns:
+            移动方向 ("left" 或 "right")
+        """
         if pivot < num_columns / 2:
             return "right"
         else:
             return "left"
 
     def _gate_pulling(self, qr_map, pivot, direction):
-        """门拉动阶段"""
+        """
+        门拉动阶段
+        尝试将门向pivot列移动以优化量子比特使用
+        
+        Args:
+            qr_map: QR-Map数据结构
+            pivot: pivot列索引
+            direction: 移动方向
+            
+        Returns:
+            是否有门被移动
+        """
         array = qr_map['array']
         vertical_lines = qr_map['vertical_lines']
         num_rows, num_columns = array.shape
@@ -225,7 +292,19 @@ class QRMapCompiler:
         return gates_moved > 0
 
     def _try_move_column(self, qr_map, moving_col, pivot, direction, trigger_row):
-        """尝试移动列"""
+        """
+        尝试移动列
+        
+        Args:
+            qr_map: QR-Map数据结构
+            moving_col: 要移动的列
+            pivot: pivot列
+            direction: 移动方向
+            trigger_row: 触发行
+            
+        Returns:
+            是否成功移动
+        """
         array = qr_map['array']
         vertical_lines = qr_map['vertical_lines']
         num_rows = array.shape[0]
@@ -249,7 +328,18 @@ class QRMapCompiler:
         return False
 
     def _generate_move_preferences(self, moving_col, pivot, direction):
-        """生成移动偏好顺序"""
+        """
+        生成移动偏好顺序
+        确定尝试移动的目标列顺序
+        
+        Args:
+            moving_col: 要移动的列
+            pivot: pivot列
+            direction: 移动方向
+            
+        Returns:
+            移动偏好顺序列表
+        """
         distance = abs(moving_col - pivot)
         preferences = [0]  # 首先尝试不移动
         
@@ -262,7 +352,18 @@ class QRMapCompiler:
         return preferences
 
     def _can_move_column(self, qr_map, moving_col, target_col):
-        """检查是否可以移动列"""
+        """
+        检查是否可以移动列
+        确保移动不会造成冲突
+        
+        Args:
+            qr_map: QR-Map数据结构
+            moving_col: 要移动的列
+            target_col: 目标列
+            
+        Returns:
+            是否可以移动
+        """
         array = qr_map['array']
         vertical_lines = qr_map['vertical_lines']
         num_rows = array.shape[0]
@@ -277,7 +378,14 @@ class QRMapCompiler:
         return True
 
     def _move_column(self, qr_map, moving_col, target_col):
-        """移动列数据"""
+        """
+        移动列数据
+        
+        Args:
+            qr_map: QR-Map数据结构
+            moving_col: 要移动的列
+            target_col: 目标列
+        """
         array = qr_map['array']
         vertical_lines = qr_map['vertical_lines']
         num_rows = array.shape[0]
@@ -298,7 +406,14 @@ class QRMapCompiler:
         print(f"移动列 {moving_col} -> {target_col}")
 
     def _update_qubit_usage_after_move(self, qr_map, from_col, to_col):
-        """移动后更新量子位使用情况"""
+        """
+        移动后更新量子位使用情况
+        
+        Args:
+            qr_map: QR-Map数据结构
+            from_col: 源列
+            to_col: 目标列
+        """
         qubit_usage = qr_map['qubit_usage']
         
         # 将from_col的使用转移到to_col
@@ -307,7 +422,12 @@ class QRMapCompiler:
             qubit_usage[from_col].clear()
 
     def restore_to_circuit(self):
-        """将优化后的QR-Map恢复为量子电路"""
+        """
+        将优化后的QR-Map恢复为量子电路
+        
+        Returns:
+            优化后的量子电路
+        """
         if self.optimized_map is None:
             raise ValueError("没有优化后的QR-Map")
             
@@ -348,7 +468,12 @@ class QRMapCompiler:
         return optimized_circuit
 
     def _count_physical_qubits(self):
-        """计算所需的物理量子位数"""
+        """
+        计算所需的物理量子位数
+        
+        Returns:
+            所需的物理量子位数
+        """
         if self.optimized_map is None:
             return self.quantum_circuit.num_qubits
             
@@ -364,7 +489,12 @@ class QRMapCompiler:
         return used_columns
 
     def _create_qubit_mapping(self):
-        """创建逻辑量子比特到物理量子比特的映射"""
+        """
+        创建逻辑量子比特到物理量子比特的映射
+        
+        Returns:
+            量子比特映射字典
+        """
         if self.optimized_map is None:
             return {i: i for i in range(self.quantum_circuit.num_qubits)}
         
@@ -386,12 +516,25 @@ class QRMapCompiler:
         return mapping
 
     def _insert_measure_reset_if_needed(self, circuit, gate_idx, qubit_mapping):
-        """在需要时插入测量和重置操作"""
+        """
+        在需要时插入测量和重置操作
+        用于实现量子比特重用
+        
+        Args:
+            circuit: 量子电路
+            gate_idx: 门索引
+            qubit_mapping: 量子比特映射
+        """
         # 简化的实现：在实际应用中需要更复杂的逻辑来判断重用点
         pass
 
     def _calculate_qubit_reuse(self):
-        """计算量子位重用次数"""
+        """
+        计算量子位重用次数
+        
+        Returns:
+            量子位重用次数
+        """
         if self.optimized_map is None:
             return 0
             
@@ -401,7 +544,13 @@ class QRMapCompiler:
         return original_qubits - optimized_qubits
 
     def extract_matrix(self):
-        """抽取的矩阵表示（原有功能）"""
+        """
+        抽取的矩阵表示（原有功能）
+        用于兼容旧的矩阵表示方法
+        
+        Returns:
+            矩阵表示
+        """
         qc = self.quantum_circuit
         n = qc.num_qubits
         if n == 0:
@@ -443,7 +592,12 @@ class QRMapCompiler:
         return mat
 
     def get_optimization_metrics(self):
-        """获取优化指标"""
+        """
+        获取优化指标
+        
+        Returns:
+            优化指标字典
+        """
         if self.optimized_map is None:
             return {}
             
@@ -457,4 +611,3 @@ class QRMapCompiler:
             'reduction_rate': (original_qubits - optimized_qubits) / original_qubits * 100,
             'qubit_reuse_count': self.qubit_reuse_count
         }
-
