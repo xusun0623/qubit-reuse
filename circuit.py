@@ -1,7 +1,4 @@
-import random
-import numpy as np
-from qiskit import QuantumCircuit, qasm3, transpile
-from qiskit.converters import circuit_to_dag
+from qiskit import QuantumCircuit, qasm3
 
 
 class Circuit:

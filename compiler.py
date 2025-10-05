@@ -1,44 +1,36 @@
 import time
 import math
-import copy
-from typing import Dict, Tuple, List, Optional, Any
-
+from typing import Dict, Optional
 import networkx as nx
 import numpy as np
 from qiskit import QuantumCircuit
 from qiskit.converters import circuit_to_dag
-
-# 可选：CP-SAT求解器
-try:
-    from ortools.sat.python import cp_model
-    ORTOOLS_AVAILABLE = True
-except Exception:
-    ORTOOLS_AVAILABLE = False
-
 from hardware import HardwareParams
 from quantum_chip import QuantumChip
+from qiskit.visualization import circuit_drawer
+import matplotlib.pyplot as plt
+from qiskit.visualization import dag_drawer
 
 
 class TimeAwareCompiler:
     """
-    编译器骨架：
       1) 初始映射（基于交互图的启发式方法）
       2) 窗口调度 + 贪心映射 + 重用跟踪
       3) 通过简单的时空近似（或距离）估算交换成本
       4) 可选的局部CP-SAT优化窗口
 
     输入:
-       - circuit_mgr: CircuitManager（读取qasm或qiskit电路）
+       - circuit: QuantumCircuit（读取qasm或qiskit电路）
        - topo: Topology（物理硬件图）
        - hw: HardwareParams
-       - params: 权重/阈值字典（lambda_makespan, lambda_swap, lambda_idle, ...）
+       - params: 权重/阈值（lambda_makespan, lambda_swap, lambda_idle, ...）
     输出:
        - 调度序列（简单表示）
        - 指标
     """
 
     def __init__(self, circuit: QuantumCircuit, topo: QuantumChip, hw: HardwareParams, params: Optional[Dict] = None):
-        self.circuit_mgr = circuit
+        self.quantum_circuit = circuit
         self.topo = topo
         self.hw = hw
         self.params = params if params is not None else {}
@@ -53,28 +45,25 @@ class TimeAwareCompiler:
         self.reverse_mapping = {}  # physical_node -> logical or None
         # 每个物理节点被占用直到的时间
         self.occupied_until = {p: 0.0 for p in self.topo.nodes()}
-        # 指标记录
-        # (physical_node, released_time, reused_time) 列表，用于计算等待时间
+        # 指标记录 (physical_node, released_time, reused_time) 列表，用于计算等待时间
         self.reuse_events = []
         self.timeline_ops = []  # 调度的操作：包含时间和类型的字典
 
-    ####################
     # 辅助方法
-    ####################
     def build_interaction_graph(self, dag=None):
         """
         从电路构建逻辑量子比特的交互图（两量子比特操作的频率）。
         返回：networkx图，逻辑量子比特节点，边上的权重=#两量子比特操作。
         """
         if dag is None:
-            dag = self.circuit_mgr.get_dag()
+            dag = circuit_to_dag(self.quantum_circuit)
         G = nx.Graph()
-        num_q = self.circuit_mgr.num_qubits()
+        num_q = self.quantum_circuit.num_qubits
         for i in range(num_q):
             G.add_node(i)
         for node in dag.op_nodes():  # qiskit DAGNode
             if node.op.num_qubits > 1:
-                qargs = [self.circuit_mgr.qc.find_bit(
+                qargs = [self.quantum_circuit.find_bit(
                     q).index for q in node.qargs]
                 if len(qargs) == 2:
                     u, v = qargs
@@ -102,7 +91,7 @@ class TimeAwareCompiler:
         """
         inter = self.build_interaction_graph()
         logical_sorted = sorted(inter.degree, key=lambda x: -x[1])
-        physical_sorted = sorted([(n, self.topo.G.degree(n)) for n in self.topo.nodes()],
+        physical_sorted = sorted([(n, self.topo.graph.degree(n)) for n in self.topo.nodes()],
                                  key=lambda x: -x[1])
         self.mapping = {}
         self.reverse_mapping = {}
@@ -122,7 +111,7 @@ class TimeAwareCompiler:
 
     def shortest_path_distance(self, p, q):
         try:
-            return nx.shortest_path_length(self.topo.G, p, q)
+            return nx.shortest_path_length(self.topo.graph, p, q)
         except nx.NetworkXNoPath:
             return math.inf
 
@@ -151,9 +140,7 @@ class TimeAwareCompiler:
         swap_count = max(0, self.shortest_path_distance(p, q) - 1)
         return est, swap_count
 
-    ####################
-    # 调度核心
-    ####################
+    # 调度
     def schedule(self, strategy="windowed_greedy", window_size=5):
         """
         主入口：使用指定策略调度电路。
@@ -162,10 +149,10 @@ class TimeAwareCompiler:
         """
         t_start = time.time()
 
-        dag = self.circuit_mgr.get_dag()
+        dag = circuit_to_dag(self.quantum_circuit)
         self.initial_mapping_by_interaction()
         # 我们将按层进行简单的拓扑扫描：
-        layers = self._dag_to_layers(dag)
+        layers = self.dag_to_layers(dag)
 
         # 重置结构
         self.occupied_until = {p: 0.0 for p in self.topo.nodes()}
@@ -187,7 +174,7 @@ class TimeAwareCompiler:
             # 在这个骨架中，我们只是在每层中顺序调度门，同时尊重occupied_until。
             for node in layer_nodes:
                 opname = node.name
-                qargs = [self.circuit_mgr.qc.find_bit(
+                qargs = [self.quantum_circuit.find_bit(
                     q).index for q in node.qargs]
                 # 基于前驱完成时间计算最早就绪时间：
                 pred_finish = 0.0
@@ -221,7 +208,7 @@ class TimeAwareCompiler:
                 elif len(phys_args) == 2:
                     p1, p2 = phys_args
                     # 如果不相邻，估计交换时间并可选择插入交换
-                    if not self.topo.G.has_edge(p1, p2):
+                    if not self.topo.graph.has_edge(p1, p2):
                         est_swap_time, swap_count = self.space_time_swap_estimate(
                             p1, p2, ready_time)
                         # 选择插入交换或重新映射一个操作数到附近的空闲量子比特
@@ -232,7 +219,7 @@ class TimeAwareCompiler:
                         # 尝试将第二个量子比特重新映射到与p1相邻的候选节点
                         remapped = False
                         for cand in free_candidates:
-                            if self.topo.G.has_edge(p1, cand):
+                            if self.topo.graph.has_edge(p1, cand):
                                 # 重新映射 l2 -> cand
                                 l2 = None
                                 # 反向查找p2的逻辑量子比特
@@ -306,11 +293,14 @@ class TimeAwareCompiler:
         metrics = self.compute_metrics(elapsed)
         return {"timeline": self.timeline_ops, "metrics": metrics}
 
-    def _dag_to_layers(self, dag):
+    def dag_to_layers(self, dag):
         """
         将DAG转换为层列表（节点列表的列表），类似于层次化。
         简单的BFS-like层次化：依赖关系中相同深度的节点。
         """
+
+        # dag_drawer(dag, filename="my_dag.png")
+
         indeg = {n: len(list(dag.predecessors(n)))
                  for n in dag.topological_op_nodes()}
         # 注意：qiskit DAG节点处理；如果可用，我们将使用dag.layers()
@@ -341,9 +331,7 @@ class TimeAwareCompiler:
                 layers[lvl].append(n)
             return layers
 
-    ####################
     # 指标
-    ####################
     def compute_metrics(self, compile_time_sec: float):
         """
         计算：
@@ -360,7 +348,7 @@ class TimeAwareCompiler:
         for op in self.timeline_ops:
             if op["type"] == "2Q":
                 p1, p2 = op["p"]
-                if not self.topo.G.has_edge(p1, p2):
+                if not self.topo.graph.has_edge(p1, p2):
                     # 如果在调度时非相邻 -> 我们估计了交换，包括估计
                     est, sc = self.space_time_swap_estimate(
                         p1, p2, op["start"])
@@ -371,7 +359,8 @@ class TimeAwareCompiler:
         reuse_rate = len(reused_events) / max(1, len(self.reuse_events))
         avg_reuse_wait = np.mean([e["reused_at"] - e["released_at"]
                                  for e in reused_events]) if reused_events else None
-        approx_depth = len(self._dag_to_layers(self.circuit_mgr.get_dag()))
+        approx_depth = len(self.dag_to_layers(
+            circuit_to_dag(self.quantum_circuit)))
         metrics = {
             "compile_time_sec": compile_time_sec,
             "makespan_ns": makespan,
@@ -382,23 +371,3 @@ class TimeAwareCompiler:
             "num_physical_nodes": len(self.topo.nodes()),
         }
         return metrics
-
-    ####################
-    # 可选：本地CP-SAT窗口（占位符）
-    ####################
-    def run_local_cp_sat(self, window_nodes):
-        """
-        如果OR-Tools可用，将本地窗口建模为CP-SAT以精确优化映射决策。
-        这是一个占位符，展示如何构建小模型；完整建模必须
-        实现前面设计中讨论的变量/约束。
-
-        返回：最佳本地操作（待集成）。
-        """
-        if not ORTOOLS_AVAILABLE:
-            raise RuntimeError(
-                "OR-Tools不可用；安装ortools以使用CP-SAT本地窗口求解器")
-        model = cp_model.CpModel()
-        # 示例：对于一小部分逻辑量子比特和物理候选节点，构建分配变量
-        # ...（完整模型可能模仿早期的ILP）
-        # 对于框架，我们返回None（用户用特定窗口建模填充）。
-        return None
