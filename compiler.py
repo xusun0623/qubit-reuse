@@ -5,6 +5,7 @@ from typing import Dict, Tuple, List, Optional, Any
 
 import networkx as nx
 import numpy as np
+from qiskit import QuantumCircuit
 from qiskit.converters import circuit_to_dag
 
 # Optional: CP-SAT
@@ -16,7 +17,6 @@ except Exception:
 
 from hardware import HardwareParams
 from quantum_chip import QuantumChip
-from circuit import QuantumCircuitManager
 
 
 class TimeAwareCompiler:
@@ -37,8 +37,8 @@ class TimeAwareCompiler:
        - metrics
     """
 
-    def __init__(self, circuit_mgr: QuantumCircuitManager, topo: QuantumChip, hw: HardwareParams, params: Optional[Dict] = None):
-        self.circuit_mgr = circuit_mgr
+    def __init__(self, circuit: QuantumCircuit, topo: QuantumChip, hw: HardwareParams, params: Optional[Dict] = None):
+        self.circuit_mgr = circuit
         self.topo = topo
         self.hw = hw
         self.params = params if params is not None else {}
