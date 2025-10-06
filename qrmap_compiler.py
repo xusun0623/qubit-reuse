@@ -1,11 +1,9 @@
-from typing import Dict, Optional, List, Tuple
+from typing import Dict, Optional, Tuple
 import numpy as np
 from qiskit import QuantumCircuit
 from hardware import HardwareParams
 from quantum_chip import QuantumChip
 import pandas as pd
-from collections import defaultdict
-import copy
 
 
 class QRMapCompiler:
@@ -34,10 +32,17 @@ class QRMapCompiler:
         self.gate_dependencies = None  # 门依赖关系
         self.qubit_reuse_count = 0  # 量子比特重用次数
 
+    # 调度，输入优化后的矩阵
     def schedule(self):
-        self.extract_matrix()
+        # 抽取的矩阵
+        matrix = self.extract_matrix()
+        # 1. 每一行的相同数字，进行连线（黑线）
+        # 2. 每一个纵列的所有数字，进行连线（红线）
+        # 3. 黑线可以收缩/扩展，但是红线必须协同左右移动
+        # 4. 任意两条红线，不能交叉
+        # 5. 最小化横向宽度
 
-    def export_matrix_to_csv(self, mat, filename="qubit_matrix.csv"):
+    def export_matrix_to_csv(self, mat, filename="./output/qubit_matrix.csv"):
         # 导出矩阵到CSV文件，用于可视化和调试
         df = pd.DataFrame(mat)
         df.to_csv(filename, index=False, header=False)
@@ -71,10 +76,11 @@ class QRMapCompiler:
         for gid, layer, qidxs in multigate_records:
             for i in qidxs:
                 mat[i][layer] = gid
-        
+
         np_mat = np.array(mat)
         np_mat = np_mat.T
         mat = np_mat.tolist()
         self.export_matrix_to_csv(mat)
         # print(np.array2string(np_mat, separator=', ', prefix=''))
+        print(len(mat))
         return mat

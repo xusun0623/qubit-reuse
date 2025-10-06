@@ -39,7 +39,7 @@ class QRMapCompiler:
         self.gate_dependencies = None  # 门依赖关系
         self.qubit_reuse_count = 0  # 量子比特重用次数
 
-    def export_matrix_to_csv(self, mat, filename="qubit_matrix.csv"):
+    def export_matrix_to_csv(self, mat, filename="./output/qubit_matrix.csv"):
         """
         导出矩阵到CSV文件，用于可视化和调试
 
@@ -160,7 +160,7 @@ class QRMapCompiler:
         self._build_vertical_lines()
 
         print("QR-Map构建完成")
-        self.export_matrix_to_csv(self.qr_map['array'], "initial_qr_map.csv")
+        self.export_matrix_to_csv(self.qr_map['array'], "./output/initial_qr_map.csv")
 
     def _build_vertical_lines(self):
         """
@@ -222,7 +222,7 @@ class QRMapCompiler:
 
         self.optimized_map = working_map
         self.export_matrix_to_csv(
-            self.optimized_map['array'], "optimized_qr_map.csv")
+            self.optimized_map['array'], "./output/optimized_qr_map.csv")
         print("Tapering算法完成")
 
     def _select_pivot(self, qr_map):
