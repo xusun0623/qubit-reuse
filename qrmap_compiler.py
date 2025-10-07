@@ -89,6 +89,11 @@ class QRMapCompiler:
         mid_column = len(matrix[0]) / 2
         while True:
             direction = 1 if pivot < mid_column else 0
+        
+        def gate_pulling(pivot_idx, direction):
+            # 从pivot所在列的gate开始拉取，将其他所有的门拉到自己附近
+            pass
+            
 
     def export_matrix_to_csv(self, mat, filename="./output/qubit_matrix.csv"):
         # 导出矩阵到CSV文件，用于可视化和调试
