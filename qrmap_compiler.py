@@ -67,10 +67,10 @@ class QRMapCompiler:
                 for row_idx in range(object_matrix.shape[0]):
                     if min_row <= row_idx <= max_row:
                         # 区间内的元素
-                        object_matrix[row_idx,
-                                      col_idx].logic_qubit_id = col_idx
-                        object_matrix[row_idx,
-                                      col_idx].idle_status = -1
+                        object_matrix[
+                            row_idx, col_idx].logic_qubit_id = col_idx
+                        object_matrix[
+                            row_idx, col_idx].idle_status = -1
                     else:
                         # 区间外的元素
                         object_matrix[row_idx, col_idx].logic_qubit_id = -1
