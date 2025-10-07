@@ -44,6 +44,7 @@ class QRMapCompiler:
         # Qubit Reuse会有一个, (q_3 -> q_2)[g_2], (q_4 -> q_2)[g_1]
         # 红线：[g_0, g_1, q_4, q_4], 假设移动q_4到q_2, 则表示为 [g_0, g_1, q_2, q_4]（原始的在q_4上）
         # another：[g_0, g_4, q_0, q_0]，移动到q_3，则表示为 [g_0, g_4, q_3, q_0]
+        pivot = 0
         
 
     def export_matrix_to_csv(self, mat, filename="./output/qubit_matrix.csv"):
