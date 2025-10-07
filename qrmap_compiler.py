@@ -46,15 +46,15 @@ class QRMapCompiler:
         matrix = self.extract_matrix()
 
         class QRMapMatrixElement:
-            def __init__(self, gate_id, logic_qubit_id):
-                self.logic_qubit_id = logic_qubit_id
+            def __init__(self, gate_id):
                 self.gate_id = gate_id
+                self.logic_qubit_id = 0
                 self.idle_status = 0  # 0-可用 -1-占用
         object_matrix = np.empty(matrix.shape, dtype=object)
         # 为每个元素创建对象
         for i in range(matrix.shape[0]):
             for j in range(matrix.shape[1]):
-                object_matrix[i, j] = QRMapMatrixElement(original_array[i, j])
+                object_matrix[i, j] = QRMapMatrixElement(matrix[i, j])
 
         non_zero_counts = np.count_nonzero(matrix, axis=0)
         pivot = np.argmax(non_zero_counts)  # 选取最多非0数字的列idx作为pivot
