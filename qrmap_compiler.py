@@ -41,7 +41,7 @@ class QRMapCompiler:
         # 3. 黑线可以收缩/扩展，但是红线必须协同左右移动
         # 4. 任意两条红线，不能交叉
         # 5. 最小化横向宽度
-        
+        # Qubit Reuse会有一个, q_3 -> q_2
 
     def export_matrix_to_csv(self, mat, filename="./output/qubit_matrix.csv"):
         # 导出矩阵到CSV文件，用于可视化和调试
