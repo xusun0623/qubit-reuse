@@ -83,6 +83,8 @@ class QRMapCompiler:
                     object_matrix[row_idx, col_idx].logic_qubit_id = -1
                     object_matrix[row_idx, col_idx].idle_status = 0
 
+        
+
         non_zero_counts = np.count_nonzero(matrix, axis=0)
         pivot = np.argmax(non_zero_counts)  # 选取最多非0数字的列idx作为pivot
         direction = 1  # 0-向左 1-向右
