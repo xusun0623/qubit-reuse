@@ -56,7 +56,12 @@ class QRMapCompiler:
             for j in range(matrix.shape[1]):
                 object_matrix[i, j] = QRMapMatrixElement(matrix[i, j])
         # 初始化矩阵元素属性
-        
+        for col_idx in range(object_matrix.shape[1]):
+            # 找到当前列中非零元素的最小和最大行索引
+            non_zero_rows = []
+            for row_idx in range(object_matrix.shape[0]):
+                if object_matrix[row_idx, col_idx].gate_id != 0:
+                    non_zero_rows.append(row_idx)
         
         non_zero_counts = np.count_nonzero(matrix, axis=0)
         pivot = np.argmax(non_zero_counts)  # 选取最多非0数字的列idx作为pivot
