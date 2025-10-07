@@ -56,6 +56,7 @@ class QRMapCompiler:
             for j in range(matrix.shape[1]):
                 object_matrix[i, j] = QRMapMatrixElement(matrix[i, j])
         
+        
         non_zero_counts = np.count_nonzero(matrix, axis=0)
         pivot = np.argmax(non_zero_counts)  # 选取最多非0数字的列idx作为pivot
         direction = 1  # 0-向左 1-向右
