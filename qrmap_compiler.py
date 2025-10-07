@@ -50,6 +50,7 @@ class QRMapCompiler:
                 self.gate_id = gate_id
                 self.logic_qubit_id = 0
                 self.idle_status = 0  # 0-可用 -1-占用
+        
         object_matrix = np.empty(matrix.shape, dtype=object)
         # 为每个元素创建对象
         for i in range(matrix.shape[0]):
