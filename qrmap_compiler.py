@@ -55,7 +55,7 @@ class QRMapCompiler:
         # 为每个元素创建对象
         for i in range(matrix.shape[0]):
             for j in range(matrix.shape[1]):
-                object_matrix[i, j] = QRMapMatrixElement(matrix[i, j])
+                object_matrix[i, j] = QRMapMatrixElement(int(matrix[i, j]))
         for col_idx in range(object_matrix.shape[1]):
             # 找到当前列中非零元素的最小和最大行索引
             non_zero_rows = []
