@@ -64,15 +64,12 @@ class QRMapCompiler:
             if non_zero_rows:  # 如果当前列有非零元素
                 min_row = min(non_zero_rows)
                 max_row = max(non_zero_rows)
-
-                # 遍历当前列的所有行
                 for row_idx in range(object_matrix.shape[0]):
                     if min_row <= row_idx <= max_row:
-                        # 区间内的元素
                         object_matrix[row_idx,
                                       col_idx].logic_qubit_id = col_idx
                         object_matrix[row_idx,
-                                      col_idx].idle_status = -1  # 占用状态
+                                      col_idx].idle_status = -1
                     else:
                         # 区间外的元素
                         object_matrix[row_idx, col_idx].logic_qubit_id = -1
