@@ -50,7 +50,7 @@ class QRMapCompiler:
                 self.gate_id = gate_id
                 self.logic_qubit_id = 0
                 self.idle_status = 0  # 0-可用 -1-占用
-        
+
         object_matrix = np.empty(matrix.shape, dtype=object)
         # 为每个元素创建对象
         for i in range(matrix.shape[0]):
@@ -82,8 +82,6 @@ class QRMapCompiler:
                 for row_idx in range(object_matrix.shape[0]):
                     object_matrix[row_idx, col_idx].logic_qubit_id = -1
                     object_matrix[row_idx, col_idx].idle_status = 0
-
-        
 
         non_zero_counts = np.count_nonzero(matrix, axis=0)
         pivot = np.argmax(non_zero_counts)  # 选取最多非0数字的列idx作为pivot
