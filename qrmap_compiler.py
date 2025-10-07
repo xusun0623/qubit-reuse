@@ -62,7 +62,30 @@ class QRMapCompiler:
             for row_idx in range(object_matrix.shape[0]):
                 if object_matrix[row_idx, col_idx].gate_id != 0:
                     non_zero_rows.append(row_idx)
-        
+            # 如果当前列有非零元素
+            if non_zero_rows:
+                min_row = min(non_zero_rows)
+                max_row = max(non_zero_rows)
+
+                # 遍历当前列的所有行
+                for row_idx in range(object_matrix.shape[0]):
+                    if min_row <= row_idx <= max_row:
+                        # 区间内的元素
+                        object_matrix[row_idx,
+                                      col_idx].logic_qubit_id = col_idx
+                        object_matrix[row_idx,
+                                      col_idx].idle_status = -1  # 占用状态
+                    else:
+                        # 区间外的元素
+                        object_matrix[row_idx, col_idx].logic_qubit_id = -1
+                        object_matrix[row_idx,
+                                      col_idx].idle_status = 0   # 可用状态
+            else:
+                # 如果当前列全为零元素，则所有元素都标记为区间外
+                for row_idx in range(object_matrix.shape[0]):
+                    object_matrix[row_idx, col_idx].logic_qubit_id = -1
+                    object_matrix[row_idx, col_idx].idle_status = 0
+
         non_zero_counts = np.count_nonzero(matrix, axis=0)
         pivot = np.argmax(non_zero_counts)  # 选取最多非0数字的列idx作为pivot
         direction = 1  # 0-向左 1-向右
