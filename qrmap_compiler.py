@@ -46,7 +46,7 @@ class QRMapCompiler:
         matrix = self.extract_matrix()
 
         class QRMapMatrixElement:
-            def __init__(self, gate_id):
+            def __init__(self, gate_id, logic_qubit_id):
                 self.logic_qubit_id = 0
                 self.gate_id = gate_id
                 self.idle_status = 0  # 0-可用 -1-占用
