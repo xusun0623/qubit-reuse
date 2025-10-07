@@ -56,8 +56,6 @@ class QRMapCompiler:
             for j in range(matrix.shape[1]):
                 object_matrix[i, j] = QRMapMatrixElement(matrix[i, j])
         # 初始化矩阵元素属性
-        for j in range(matrix.shape[1]):
-            for i in range(matrix.shape[0]):
                 
         
         non_zero_counts = np.count_nonzero(matrix, axis=0)
