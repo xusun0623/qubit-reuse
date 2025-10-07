@@ -92,7 +92,9 @@ class QRMapCompiler:
         
         def gate_pulling(pivot_idx, direction):
             # 从pivot所在列的gate开始拉取，将其他所有的门拉到自己附近
-            # 每一列中logic_qubit_id的所有元素，必须在横向协同移动
+            # 规则：
+            # 1. 每一列中logic_qubit_id的所有元素，必须在横向协同移动
+            # 2. 仅可以拉到idle_status为0的目标位置上
             pass
             
 
