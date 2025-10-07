@@ -35,7 +35,6 @@ class QRMapCompiler:
     # 调度，输入优化后的矩阵
     def schedule(self):
         # 抽取的矩阵
-        matrix = self.extract_matrix()
         # 1. 每一行的相同数字，进行连线（黑线）
         # 2. 每一个纵列的所有数字，进行连线（红线）
         # 3. 黑线可以收缩/扩展，但是红线必须协同左右移动
@@ -44,15 +43,32 @@ class QRMapCompiler:
         # Qubit Reuse会有一个, (q_3 -> q_2)[g_2], (q_4 -> q_2)[g_1]
         # 红线：[g_0, g_1, q_4, q_4], 假设移动q_4到q_2, 则表示为 [g_0, g_1, q_2, q_4]（原始的在q_4上）
         # another：[g_0, g_4, q_0, q_0]，移动到q_3，则表示为 [g_0, g_4, q_3, q_0]
-        pivot = 0
-        
+        matrix = self.extract_matrix()
+
+        class QRMapMatrixElement:
+            def __init__(self, gate_id):
+                self.logic_qubit_id = 0
+                self.gate_id = gate_id
+                self.idle_status = 0  # 0-可用 -1-占用
+        object_matrix = np.empty(matrix.shape, dtype=object)
+        # 为每个元素创建对象
+        for i in range(matrix.shape[0]):
+            for j in range(matrix.shape[1]):
+                object_matrix[i, j] = QRMapMatrixElement(original_array[i, j])
+
+        non_zero_counts = np.count_nonzero(matrix, axis=0)
+        pivot = np.argmax(non_zero_counts)  # 选取最多非0数字的列idx作为pivot
+        direction = 1  # 0-向左 1-向右
+        mid_column = len(matrix[0]) / 2
+        while True:
+            direction = 1 if pivot < mid_column else 0
 
     def export_matrix_to_csv(self, mat, filename="./output/qubit_matrix.csv"):
         # 导出矩阵到CSV文件，用于可视化和调试
         df = pd.DataFrame(mat)
         df.to_csv(filename, index=False, header=False)
 
-    def extract_matrix(self):
+    def extract_matrix(self) -> np.ndarray:
         # 抽取的矩阵表示
         qc = self.quantum_circuit
         n = qc.num_qubits
@@ -84,8 +100,5 @@ class QRMapCompiler:
 
         np_mat = np.array(mat)
         np_mat = np_mat.T
-        mat = np_mat.tolist()
-        self.export_matrix_to_csv(mat)
-        # print(np.array2string(np_mat, separator=', ', prefix=''))
-        print(len(mat))
-        return mat
+        self.export_matrix_to_csv(np_mat)
+        return np_mat
