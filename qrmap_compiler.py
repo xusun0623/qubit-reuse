@@ -42,7 +42,8 @@ class QRMapCompiler:
         # 4. 任意两条红线，不能交叉
         # 5. 最小化横向宽度
         # Qubit Reuse会有一个, (q_3 -> q_2)[g_2], (q_4 -> q_2)[g_1]
-        # 红线：
+        # 红线：[g_0, g_1, q_4]
+        
 
     def export_matrix_to_csv(self, mat, filename="./output/qubit_matrix.csv"):
         # 导出矩阵到CSV文件，用于可视化和调试
