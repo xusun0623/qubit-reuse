@@ -94,7 +94,7 @@ class QRMapCompiler:
             # 从pivot所在列的gate开始拉取，将其他所有的门拉到自己附近
             # 规则：
             # 1. 每一列中logic_qubit_id的所有元素，必须在横向协同移动
-            # 2. 仅可以拉到idle_status为0的目标位置上
+            # 2. 仅可以拉到idle_status为0的目标位置上，如果一列上有任何一个不为-1logic_qubit_id冲突了，都不能拉
             pass
             
 
