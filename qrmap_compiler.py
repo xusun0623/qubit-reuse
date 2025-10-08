@@ -90,33 +90,112 @@ class QRMapCompiler:
         # 获取芯片拓扑结构
         chip_graph = self.quantum_chip.graph
 
-        # 使用简单的贪心算法进行映射
-        # 1. 按照逻辑量子比特在交互图中的度数排序
-        logical_sorted = sorted(interaction_graph.degree, key=lambda x: -
-                                x[1]) if interaction_graph.edges() else [(i, 0) for i in range(_q_num)]
+        # 使用基于交互强度的映射算法
+        # 1. 找到逻辑量子比特之间交互最强的一对
+        # 2. 将这对逻辑量子比特映射到物理芯片上相邻的节点
+        # 3. 继续映射剩余的逻辑量子比特，优先选择与已映射量子比特在芯片上相邻的节点
 
-        # 2. 按照物理量子比特在芯片图中的度数排序
-        physical_sorted = sorted([(n, chip_graph.degree(n)) for n in chip_graph.nodes()],
-                                 key=lambda x: -x[1])
-
-        # 3. 创建映射
+        # 创建映射
         self.qubit_mapping = {}  # 逻辑量子比特 -> 物理量子比特
         self.reverse_qubit_mapping = {}  # 物理量子比特 -> 逻辑量子比特
 
-        # 映射逻辑量子比特到物理量子比特
-        for idx, (logical_qubit, _) in enumerate(logical_sorted):
-            if idx < len(physical_sorted):
-                physical_qubit = physical_sorted[idx][0]
-                self.qubit_mapping[logical_qubit] = physical_qubit
-                self.reverse_qubit_mapping[physical_qubit] = logical_qubit
-            else:
-                # 如果物理量子比特不够，保持未映射
-                self.qubit_mapping[logical_qubit] = None
+        # 如果没有交互边，使用简单的映射
+        if not list(interaction_graph.edges()):
+            # 简单映射：按顺序映射
+            physical_nodes = list(chip_graph.nodes())
+            for i in range(_q_num):
+                if i < len(physical_nodes):
+                    self.qubit_mapping[i] = physical_nodes[i]
+                    self.reverse_qubit_mapping[physical_nodes[i]] = i
+                else:
+                    self.qubit_mapping[i] = None
+        else:
+            # 基于交互强度的映射
+            # 找到权重最大的边
+            edges_sorted_by_weight = sorted(
+                interaction_graph.edges(data=True),
+                key=lambda x: x[2]['weight'],
+                reverse=True
+            )
 
-        # 初始化剩余的物理量子比特为未映射
-        for p in chip_graph.nodes():
-            if p not in self.reverse_qubit_mapping:
-                self.reverse_qubit_mapping[p] = None
+            # 已映射的逻辑量子比特和物理量子比特
+            mapped_logical = set()
+            mapped_physical = set()
+
+            # 如果有边，先映射交互最强的一对逻辑量子比特到相邻的物理量子比特
+            if edges_sorted_by_weight:
+                # 取权重最大的边
+                u, v, weight = edges_sorted_by_weight[0]
+
+                # 在物理芯片上找到一条边（相邻的节点）
+                chip_edges = list(chip_graph.edges())
+                if chip_edges:
+                    physical_u, physical_v = chip_edges[0]
+                    self.qubit_mapping[u] = physical_u
+                    self.qubit_mapping[v] = physical_v
+                    self.reverse_qubit_mapping[physical_u] = u
+                    self.reverse_qubit_mapping[physical_v] = v
+                    mapped_logical.update([u, v])
+                    mapped_physical.update([physical_u, physical_v])
+
+            # 映射剩余的逻辑量子比特
+            remaining_logical = set(range(_q_num)) - mapped_logical
+            remaining_physical = set(chip_graph.nodes()) - mapped_physical
+
+            # 为每个剩余的逻辑量子比特找到最佳的物理量子比特
+            while remaining_logical:
+                best_logical = None
+                best_physical = None
+                best_score = -1
+
+                # 对每个未映射的逻辑量子比特
+                for logical in remaining_logical:
+                    # 计算它与已映射逻辑量子比特的交互强度
+                    connections = []
+                    for mapped_logical_qubit in mapped_logical:
+                        if interaction_graph.has_edge(logical, mapped_logical_qubit):
+                            weight = interaction_graph[logical][mapped_logical_qubit]['weight']
+                            connections.append((mapped_logical_qubit, weight))
+
+                    # 对每个未映射的物理量子比特
+                    for physical in remaining_physical:
+                        # 计算这个物理量子比特与已映射物理量子比特的连接程度
+                        score = 0
+                        for mapped_logical_qubit, weight in connections:
+                            mapped_physical_qubit = self.qubit_mapping[mapped_logical_qubit]
+                            # 如果物理量子比特与已映射的物理量子比特相邻，则加分
+                            if chip_graph.has_edge(physical, mapped_physical_qubit):
+                                score += weight
+
+                        # 更新最佳选择
+                        if score > best_score:
+                            best_score = score
+                            best_logical = logical
+                            best_physical = physical
+
+                # 如果找不到有连接的映射，选择任意一个
+                if best_logical is None:
+                    best_logical = remaining_logical.pop()
+                    best_physical = remaining_physical.pop() if remaining_physical else None
+
+                # 执行映射
+                if best_logical is not None and best_physical is not None:
+                    self.qubit_mapping[best_logical] = best_physical
+                    self.reverse_qubit_mapping[best_physical] = best_logical
+                    mapped_logical.add(best_logical)
+                    mapped_physical.add(best_physical)
+                    remaining_logical.discard(best_logical)
+                    remaining_physical.discard(best_physical)
+                elif best_logical is not None:
+                    # 没有足够的物理量子比特
+                    self.qubit_mapping[best_logical] = None
+                    mapped_logical.add(best_logical)
+                    remaining_logical.discard(best_logical)
+
+            # 处理剩余的物理量子比特
+            for p in chip_graph.nodes():
+                if p not in self.reverse_qubit_mapping:
+                    self.reverse_qubit_mapping[p] = None
 
         print(f"逻辑量子比特到物理量子比特的映射: {self.qubit_mapping}")
 
