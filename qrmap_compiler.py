@@ -39,8 +39,17 @@ class QRMapCompiler:
         self.gate_dependencies = None  # 门依赖关系
         self.qubit_reuse_count = 0  # 量子比特重用次数
 
-    # 调度，输入优化后的矩阵
-    def schedule(self):
+    def compile_program(self):
+        shrinked_matrix = self.explore_qubit_reuse()
+        self.scatter_to_chip(shrinked_matrix)
+
+    def scatter_to_chip(self, shrinked_matrix):
+        # 将优化后的矩阵，投到量子芯片上
+        self.export_matrix_to_csv(shrinked_matrix, "./output/shrinked_matrix")
+        pass
+
+    # 收缩，输出优化后的矩阵
+    def explore_qubit_reuse(self) -> np.ndarray:
         # 抽取的矩阵
         # 1. 每一行的相同数字，进行连线（黑线）
         # 2. 每一个纵列的所有数字，进行连线（红线）
@@ -51,6 +60,9 @@ class QRMapCompiler:
         # 红线：[g_0, g_1, q_4, q_4], 假设移动q_4到q_2, 则表示为 [g_0, g_1, q_2, q_4]（原始的在q_4上）
         # another：[g_0, g_4, q_0, q_0]，移动到q_3，则表示为 [g_0, g_4, q_3, q_0]
         object_matrix = self.extract_matrix()
+
+        self.export_matrix_to_csv(object_matrix)
+
         init_qubit_num = self.get_not_all_zero_col_count(object_matrix)
 
         def get_pivot_idx():
@@ -129,6 +141,27 @@ class QRMapCompiler:
                                         col_idx, tmp_col_idx, object_matrix[row_idx, col_idx].logic_qubit_id)
                                     if ret:
                                         break
+            # 再拉自己没有的Gate的
+            for row_idx in range(object_matrix.shape[0]):
+                if object_matrix[row_idx, pivot_idx].gate_id == 0:
+                    # [row_id, pivot_idx]
+                    for col_idx in range(object_matrix.shape[1]):
+                        if (pivot_idx == col_idx):
+                            continue
+                        if (object_matrix[row_idx, col_idx].gate_id != 0):
+                            # 将 col_idx 指向的列，拉到 direction 指向的附近
+                            if direction == 1:  # 向右搜索
+                                for tmp_col_idx in range(pivot_idx + 1, object_matrix.shape[1]):
+                                    ret = pull_it(
+                                        col_idx, tmp_col_idx, object_matrix[row_idx, col_idx].logic_qubit_id)
+                                    if ret:
+                                        break
+                            else:  # 向左搜索
+                                for tmp_col_idx in range(pivot_idx - 1, 0, -1):
+                                    ret = pull_it(
+                                        col_idx, tmp_col_idx, object_matrix[row_idx, col_idx].logic_qubit_id)
+                                    if ret:
+                                        break
 
         while True:
             direction = 1 if pivot < mid_column else 0
@@ -141,10 +174,11 @@ class QRMapCompiler:
 
         after_qubit_num = self.get_not_all_zero_col_count(object_matrix)
 
-        return [init_qubit_num, after_qubit_num]
-
         # self.export_matrix_to_csv(
         #     object_matrix, base_filename="./output/qubit_matrix_optimized")
+        print(f"[{self.params['circuit_type']}, {self.params['qubit_num']}]: {init_qubit_num} → {after_qubit_num}")
+
+        return object_matrix
 
     def get_not_all_zero_col_count(self, object_matrix):
         """ 计算矩阵中gate_id非零列的数量 """
