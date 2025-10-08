@@ -6,6 +6,13 @@ from quantum_chip import QuantumChip
 import pandas as pd
 
 
+class QRMapMatrixElement:
+    def __init__(self, gate_id: int):
+        self.gate_id = gate_id
+        self.logic_qubit_id = 0
+        self.idle_status = 0  # 0-可用 -1-占用
+
+
 class QRMapCompiler:
 
     def __init__(self, quantum_circuit: QuantumCircuit, quantum_chip: QuantumChip,
@@ -43,45 +50,9 @@ class QRMapCompiler:
         # Qubit Reuse会有一个, (q_3 -> q_2)[g_2], (q_4 -> q_2)[g_1]
         # 红线：[g_0, g_1, q_4, q_4], 假设移动q_4到q_2, 则表示为 [g_0, g_1, q_2, q_4]（原始的在q_4上）
         # another：[g_0, g_4, q_0, q_0]，移动到q_3，则表示为 [g_0, g_4, q_3, q_0]
-        matrix = self.extract_matrix()
-
-        class QRMapMatrixElement:
-            def __init__(self, gate_id: int):
-                self.gate_id = gate_id
-                self.logic_qubit_id = 0
-                self.idle_status = 0  # 0-可用 -1-占用
-
-        object_matrix = np.empty(matrix.shape, dtype=object)
-        # 为每个元素创建对象
-        for i in range(matrix.shape[0]):
-            for j in range(matrix.shape[1]):
-                object_matrix[i, j] = QRMapMatrixElement(int(matrix[i, j]))
-        for col_idx in range(object_matrix.shape[1]):
-            # 找到当前列中非零元素的最小和最大行索引
-            non_zero_rows = []
-            for row_idx in range(object_matrix.shape[0]):
-                if object_matrix[row_idx, col_idx].gate_id != 0:
-                    non_zero_rows.append(row_idx)
-            if non_zero_rows:  # 如果当前列有非零元素
-                min_row = min(non_zero_rows)
-                max_row = max(non_zero_rows)
-                for row_idx in range(object_matrix.shape[0]):
-                    if min_row <= row_idx <= max_row:
-                        # 区间内的元素
-                        object_matrix[
-                            row_idx, col_idx].logic_qubit_id = col_idx
-                        object_matrix[
-                            row_idx, col_idx].idle_status = -1
-                    else:
-                        # 区间外的元素
-                        object_matrix[row_idx, col_idx].logic_qubit_id = -1
-                        object_matrix[row_idx,
-                                      col_idx].idle_status = 0   # 可用状态
-            else:
-                # 如果当前列全为零元素，则所有元素都标记为区间外
-                for row_idx in range(object_matrix.shape[0]):
-                    object_matrix[row_idx, col_idx].logic_qubit_id = -1
-                    object_matrix[row_idx, col_idx].idle_status = 0
+        object_matrix = self.extract_matrix()
+        init_qubit_num = self.get_not_all_zero_col_count(object_matrix)
+        print("初始的量子比特数：", init_qubit_num)
 
         def get_pivot_idx():
             # 选取最多非0数字的列idx作为pivot
@@ -94,7 +65,7 @@ class QRMapCompiler:
 
         pivot = get_pivot_idx()
         direction = 1  # 0-向左 1-向右
-        mid_column = len(matrix[0]) / 2
+        mid_column = object_matrix.shape[1] / 2
 
         def can_be_pulled(from_col_idx, to_col_idx, from_logic_qubit_id):
             # 判断 object_matrix 中两个列之间，是否可以拉
@@ -168,14 +139,65 @@ class QRMapCompiler:
                 break
             else:
                 pivot = tmp_pivot
+                
+        init_qubit_num = self.get_not_all_zero_col_count(object_matrix)
+        print("优化后的量子比特数：", init_qubit_num)
+        
+        self.export_matrix_to_csv(
+            object_matrix, base_filename="./output/qubit_matrix_optimized")
 
-    def export_matrix_to_csv(self, mat, filename="./output/qubit_matrix.csv"):
-        # 导出矩阵到CSV文件，用于可视化和调试
-        df = pd.DataFrame(mat)
-        df.to_csv(filename, index=False, header=False)
+    def get_not_all_zero_col_count(self, object_matrix):
+        """ 计算矩阵中gate_id非零列的数量 """
+        count = 0
+        for col_idx in range(object_matrix.shape[1]):
+            col_sum = 0
+            for row_idx in range(object_matrix.shape[0]):
+                col_sum += object_matrix[row_idx, col_idx].gate_id
+            if (col_sum != 0):
+                count += 1
+        return count
+
+    def export_matrix_to_csv(self, object_matrix, base_filename="./output/qubit_matrix"):
+        """
+        导出三个矩阵到CSV文件，分别包含gate_id、logic_qubit_id和idle_status
+
+        参数:
+        object_matrix: 包含QRMapMatrixElement对象的numpy数组
+        base_filename: 基础文件名路径，默认为"./output/qubit_matrix"
+        """
+        if object_matrix is None or object_matrix.size == 0:
+            return
+
+        # 提取三个属性矩阵
+        gate_id_matrix = np.zeros(object_matrix.shape, dtype=int)
+        logic_qubit_id_matrix = np.zeros(object_matrix.shape, dtype=int)
+        idle_status_matrix = np.zeros(object_matrix.shape, dtype=int)
+
+        # 填充三个矩阵
+        for i in range(object_matrix.shape[0]):
+            for j in range(object_matrix.shape[1]):
+                gate_id_matrix[i, j] = object_matrix[i, j].gate_id
+                logic_qubit_id_matrix[i,
+                                      j] = object_matrix[i, j].logic_qubit_id
+                idle_status_matrix[i, j] = object_matrix[i, j].idle_status
+
+        # 导出 gate_id 矩阵
+        gate_df = pd.DataFrame(gate_id_matrix)
+        gate_df.to_csv(f"{base_filename}_gate_id.csv",
+                       index=False, header=False)
+
+        # 导出 logic_qubit_id 矩阵
+        logic_qubit_df = pd.DataFrame(logic_qubit_id_matrix)
+        logic_qubit_df.to_csv(
+            f"{base_filename}_logic_qubit_id.csv", index=False, header=False)
+
+        # 导出 idle_status 矩阵
+        idle_status_df = pd.DataFrame(idle_status_matrix)
+        idle_status_df.to_csv(
+            f"{base_filename}_idle_status.csv", index=False, header=False)
 
     def extract_matrix(self) -> np.ndarray:
-        # 抽取的矩阵表示
+        # 抽取矩阵
         qc = self.quantum_circuit
         n = qc.num_qubits
         if n == 0:
@@ -206,5 +228,39 @@ class QRMapCompiler:
 
         np_mat = np.array(mat)
         np_mat = np_mat.T
-        self.export_matrix_to_csv(np_mat)
-        return np_mat
+
+        object_matrix = np.empty(np_mat.shape, dtype=object)
+        # 为每个元素创建对象
+        for i in range(np_mat.shape[0]):
+            for j in range(np_mat.shape[1]):
+                object_matrix[i, j] = QRMapMatrixElement(int(np_mat[i, j]))
+        for col_idx in range(object_matrix.shape[1]):
+            # 找到当前列中非零元素的最小和最大行索引
+            non_zero_rows = []
+            for row_idx in range(object_matrix.shape[0]):
+                if object_matrix[row_idx, col_idx].gate_id != 0:
+                    non_zero_rows.append(row_idx)
+            if non_zero_rows:  # 如果当前列有非零元素
+                min_row = min(non_zero_rows)
+                max_row = max(non_zero_rows)
+                for row_idx in range(object_matrix.shape[0]):
+                    if min_row <= row_idx <= max_row:
+                        # 区间内的元素
+                        object_matrix[
+                            row_idx, col_idx].logic_qubit_id = col_idx
+                        object_matrix[
+                            row_idx, col_idx].idle_status = -1
+                    else:
+                        # 区间外的元素
+                        object_matrix[row_idx, col_idx].logic_qubit_id = -1
+                        object_matrix[row_idx,
+                                      col_idx].idle_status = 0   # 可用状态
+            else:
+                # 如果当前列全为零元素，则所有元素都标记为区间外
+                for row_idx in range(object_matrix.shape[0]):
+                    object_matrix[row_idx, col_idx].logic_qubit_id = -1
+                    object_matrix[row_idx, col_idx].idle_status = 0
+
+        self.export_matrix_to_csv(object_matrix)
+
+        return object_matrix
