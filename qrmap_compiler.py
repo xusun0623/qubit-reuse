@@ -45,12 +45,40 @@ class QRMapCompiler:
 
     def scatter_to_chip(self, shrinked_matrix):
         # 将优化后的矩阵，投到量子芯片上
-        self.export_matrix_to_csv(shrinked_matrix, "./output/shrinked_matrix")
+        # 输入矩阵，输出映射数据结构
+        # self.export_matrix_to_csv(shrinked_matrix, "./output/shrinked_matrix")
+        # 构建 shrinked_matrix 上的热力图
+        _q_num = 0  # 所需要的物理比特的数量
+        _q_idxs = []
+        for col_idx in range(shrinked_matrix.shape[1]):
+            col_sum = 0
+            for row_idx in range(shrinked_matrix.shape[0]):
+                col_sum += shrinked_matrix[row_idx, col_idx].gate_id
+            if (col_sum != 0):
+                _q_num += 1
+                _q_idxs.append(col_idx)
+
+        heat_map = np.array([[0] * _q_num for _ in range(_q_num)])
+
+        def get_two_col_shared_bit_num(col_idx_a, col_idx_b):
+            count = 0
+            for row_idx in range(shrinked_matrix.shape[0]):
+                gate_id_a = shrinked_matrix[row_idx, col_idx_a].gate_id
+                gate_id_b = shrinked_matrix[row_idx, col_idx_b].gate_id
+                if (gate_id_a != 0 and gate_id_a == gate_id_b):
+                    count += 1
+            return count
+
+        for i in range(_q_num):
+            for j in range(i + 1, _q_num):
+                col_idx_a, col_idx_b = _q_idxs[i], _q_idxs[j]
+                heat_map[i, j] = get_two_col_shared_bit_num(
+                    col_idx_a, col_idx_b)
+                heat_map[j, i] = heat_map[i, j]
         pass
 
-    # 收缩，输出优化后的矩阵
     def explore_qubit_reuse(self) -> np.ndarray:
-        # 抽取的矩阵
+        # 抽取矩阵；收缩，输出优化后的矩阵
         # 1. 每一行的相同数字，进行连线（黑线）
         # 2. 每一个纵列的所有数字，进行连线（红线）
         # 3. 黑线可以收缩/扩展，但是红线必须协同左右移动
