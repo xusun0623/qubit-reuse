@@ -52,7 +52,6 @@ class QRMapCompiler:
         # another：[g_0, g_4, q_0, q_0]，移动到q_3，则表示为 [g_0, g_4, q_3, q_0]
         object_matrix = self.extract_matrix()
         init_qubit_num = self.get_not_all_zero_col_count(object_matrix)
-        print("初始的量子比特数：", init_qubit_num)
 
         def get_pivot_idx():
             # 选取最多非0数字的列idx作为pivot
@@ -139,12 +138,13 @@ class QRMapCompiler:
                 break
             else:
                 pivot = tmp_pivot
-                
-        init_qubit_num = self.get_not_all_zero_col_count(object_matrix)
-        print("优化后的量子比特数：", init_qubit_num)
-        
-        self.export_matrix_to_csv(
-            object_matrix, base_filename="./output/qubit_matrix_optimized")
+
+        after_qubit_num = self.get_not_all_zero_col_count(object_matrix)
+
+        return [init_qubit_num, after_qubit_num]
+
+        # self.export_matrix_to_csv(
+        #     object_matrix, base_filename="./output/qubit_matrix_optimized")
 
     def get_not_all_zero_col_count(self, object_matrix):
         """ 计算矩阵中gate_id非零列的数量 """
@@ -261,6 +261,6 @@ class QRMapCompiler:
                     object_matrix[row_idx, col_idx].logic_qubit_id = -1
                     object_matrix[row_idx, col_idx].idle_status = 0
 
-        self.export_matrix_to_csv(object_matrix)
+        # self.export_matrix_to_csv(object_matrix)
 
         return object_matrix
