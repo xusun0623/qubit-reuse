@@ -4,6 +4,7 @@ from qiskit import QuantumCircuit
 from hardware import HardwareParams
 from quantum_chip import QuantumChip
 import pandas as pd
+import networkx as nx
 
 
 class QRMapMatrixElement:
@@ -75,7 +76,49 @@ class QRMapCompiler:
                 heat_map[i, j] = get_two_col_shared_bit_num(
                     col_idx_a, col_idx_b)
                 heat_map[j, i] = heat_map[i, j]
-        pass
+
+        # 构建逻辑量子比特交互图
+        interaction_graph = nx.Graph()
+        for i in range(_q_num):
+            interaction_graph.add_node(i)
+
+        for i in range(_q_num):
+            for j in range(i + 1, _q_num):
+                if heat_map[i, j] > 0:
+                    interaction_graph.add_edge(i, j, weight=heat_map[i, j])
+
+        # 获取芯片拓扑结构
+        chip_graph = self.quantum_chip.graph
+
+        # 使用简单的贪心算法进行映射
+        # 1. 按照逻辑量子比特在交互图中的度数排序
+        logical_sorted = sorted(interaction_graph.degree, key=lambda x: -
+                                x[1]) if interaction_graph.edges() else [(i, 0) for i in range(_q_num)]
+
+        # 2. 按照物理量子比特在芯片图中的度数排序
+        physical_sorted = sorted([(n, chip_graph.degree(n)) for n in chip_graph.nodes()],
+                                 key=lambda x: -x[1])
+
+        # 3. 创建映射
+        self.qubit_mapping = {}  # 逻辑量子比特 -> 物理量子比特
+        self.reverse_qubit_mapping = {}  # 物理量子比特 -> 逻辑量子比特
+
+        # 映射逻辑量子比特到物理量子比特
+        for idx, (logical_qubit, _) in enumerate(logical_sorted):
+            if idx < len(physical_sorted):
+                physical_qubit = physical_sorted[idx][0]
+                self.qubit_mapping[logical_qubit] = physical_qubit
+                self.reverse_qubit_mapping[physical_qubit] = logical_qubit
+            else:
+                # 如果物理量子比特不够，保持未映射
+                self.qubit_mapping[logical_qubit] = None
+
+        # 初始化剩余的物理量子比特为未映射
+        for p in chip_graph.nodes():
+            if p not in self.reverse_qubit_mapping:
+                self.reverse_qubit_mapping[p] = None
+
+        print(f"逻辑量子比特到物理量子比特的映射: {self.qubit_mapping}")
 
     def explore_qubit_reuse(self) -> np.ndarray:
         # 抽取矩阵；收缩，输出优化后的矩阵
