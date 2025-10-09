@@ -97,7 +97,6 @@ class QRMapCompiler:
 
         # 创建映射
         self.qubit_mapping = {}  # 逻辑量子比特 -> 物理量子比特
-        self.reverse_qubit_mapping = {}  # 物理量子比特 -> 逻辑量子比特
 
         # 如果没有交互边，使用简单的映射
         if not list(interaction_graph.edges()):
@@ -106,7 +105,6 @@ class QRMapCompiler:
             for i in range(_q_num):
                 if i < len(physical_nodes):
                     self.qubit_mapping[i] = physical_nodes[i]
-                    self.reverse_qubit_mapping[physical_nodes[i]] = i
                 else:
                     self.qubit_mapping[i] = None
         else:
@@ -133,8 +131,6 @@ class QRMapCompiler:
                     physical_u, physical_v = chip_edges[0]
                     self.qubit_mapping[u] = physical_u
                     self.qubit_mapping[v] = physical_v
-                    self.reverse_qubit_mapping[physical_u] = u
-                    self.reverse_qubit_mapping[physical_v] = v
                     mapped_logical.update([u, v])
                     mapped_physical.update([physical_u, physical_v])
 
@@ -181,7 +177,6 @@ class QRMapCompiler:
                 # 执行映射
                 if best_logical is not None and best_physical is not None:
                     self.qubit_mapping[best_logical] = best_physical
-                    self.reverse_qubit_mapping[best_physical] = best_logical
                     mapped_logical.add(best_logical)
                     mapped_physical.add(best_physical)
                     remaining_logical.discard(best_logical)
@@ -191,11 +186,6 @@ class QRMapCompiler:
                     self.qubit_mapping[best_logical] = None
                     mapped_logical.add(best_logical)
                     remaining_logical.discard(best_logical)
-
-            # 处理剩余的物理量子比特
-            for p in chip_graph.nodes():
-                if p not in self.reverse_qubit_mapping:
-                    self.reverse_qubit_mapping[p] = None
 
         print(f"逻辑量子比特到物理量子比特的映射: {self.qubit_mapping}")
 
