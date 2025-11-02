@@ -7,17 +7,22 @@ import pandas as pd
 import networkx as nx
 
 
-class QRMapMatrixElement:
+class QRMoveMatrixElement:
     def __init__(self, gate_id: int):
         self.gate_id = gate_id
         self.logic_qubit_id = 0
         self.idle_status = 0  # 0-可用 -1-占用
 
 
-class QRMapCompiler:
+class QRMoveCompiler:
 
-    def __init__(self, quantum_circuit: QuantumCircuit, quantum_chip: QuantumChip,
-                 hardware_params: HardwareParams = None, params: Optional[Dict] = None):
+    def __init__(
+        self,
+        quantum_circuit: QuantumCircuit,
+        quantum_chip: QuantumChip,
+        hardware_params: HardwareParams = None,
+        params: Optional[Dict] = None,
+    ):
         """
         quantum_circuit: 待优化的量子电路
         quantum_chip: 量子芯片信息
@@ -30,10 +35,10 @@ class QRMapCompiler:
 
         self.params = params or {}
         self.idling_threshold = self.params.get(
-            'idling_threshold', None
+            "idling_threshold", None
         )  # 空闲时间阈值，用于判断何时可以重用量子比特
         self.use_most_qubit_rule = self.params.get(
-            'use_most_qubit_rule', True
+            "use_most_qubit_rule", True
         )  # 是否使用最多量子位规则选择pivot列
         self.qr_map = None  # 原始QR-Map数据结构
         self.optimized_map = None  # 优化后的QR-Map数据结构
@@ -55,7 +60,7 @@ class QRMapCompiler:
             col_sum = 0
             for row_idx in range(shrinked_matrix.shape[0]):
                 col_sum += shrinked_matrix[row_idx, col_idx].gate_id
-            if (col_sum != 0):
+            if col_sum != 0:
                 _q_num += 1
                 _q_idxs.append(col_idx)
 
@@ -66,15 +71,14 @@ class QRMapCompiler:
             for row_idx in range(shrinked_matrix.shape[0]):
                 gate_id_a = shrinked_matrix[row_idx, col_idx_a].gate_id
                 gate_id_b = shrinked_matrix[row_idx, col_idx_b].gate_id
-                if (gate_id_a != 0 and gate_id_a == gate_id_b):
+                if gate_id_a != 0 and gate_id_a == gate_id_b:
                     count += 1
             return count
 
         for i in range(_q_num):
             for j in range(i + 1, _q_num):
                 col_idx_a, col_idx_b = _q_idxs[i], _q_idxs[j]
-                heat_map[i, j] = get_two_col_shared_bit_num(
-                    col_idx_a, col_idx_b)
+                heat_map[i, j] = get_two_col_shared_bit_num(col_idx_a, col_idx_b)
                 heat_map[j, i] = heat_map[i, j]
 
         # 构建逻辑量子比特交互图
@@ -112,8 +116,8 @@ class QRMapCompiler:
             # 找到权重最大的边
             edges_sorted_by_weight = sorted(
                 interaction_graph.edges(data=True),
-                key=lambda x: x[2]['weight'],
-                reverse=True
+                key=lambda x: x[2]["weight"],
+                reverse=True,
             )
 
             # 已映射的逻辑量子比特和物理量子比特
@@ -150,7 +154,9 @@ class QRMapCompiler:
                     connections = []
                     for mapped_logical_qubit in mapped_logical:
                         if interaction_graph.has_edge(logical, mapped_logical_qubit):
-                            weight = interaction_graph[logical][mapped_logical_qubit]['weight']
+                            weight = interaction_graph[logical][mapped_logical_qubit][
+                                "weight"
+                            ]
                             connections.append((mapped_logical_qubit, weight))
 
                     # 对每个未映射的物理量子比特
@@ -158,7 +164,9 @@ class QRMapCompiler:
                         # 计算这个物理量子比特与已映射物理量子比特的连接程度
                         score = 0
                         for mapped_logical_qubit, weight in connections:
-                            mapped_physical_qubit = self.qubit_mapping[mapped_logical_qubit]
+                            mapped_physical_qubit = self.qubit_mapping[
+                                mapped_logical_qubit
+                            ]
                             # 如果物理量子比特与已映射的物理量子比特相邻，则加分
                             if chip_graph.has_edge(physical, mapped_physical_qubit):
                                 score += weight
@@ -172,7 +180,9 @@ class QRMapCompiler:
                 # 如果找不到有连接的映射，选择任意一个
                 if best_logical is None:
                     best_logical = remaining_logical.pop()
-                    best_physical = remaining_physical.pop() if remaining_physical else None
+                    best_physical = (
+                        remaining_physical.pop() if remaining_physical else None
+                    )
 
                 # 执行映射
                 if best_logical is not None and best_physical is not None:
@@ -207,11 +217,16 @@ class QRMapCompiler:
 
         def get_pivot_idx():
             # 选取最多非0数字的列idx作为pivot
-            non_zero_counts = np.array([
-                sum(1 for row in range(object_matrix.shape[0])
-                    if object_matrix[row, col].gate_id != 0)
-                for col in range(object_matrix.shape[1])
-            ])
+            non_zero_counts = np.array(
+                [
+                    sum(
+                        1
+                        for row in range(object_matrix.shape[0])
+                        if object_matrix[row, col].gate_id != 0
+                    )
+                    for col in range(object_matrix.shape[1])
+                ]
+            )
             return np.argmax(non_zero_counts)
 
         pivot = get_pivot_idx()
@@ -221,9 +236,16 @@ class QRMapCompiler:
         def can_be_pulled(from_col_idx, to_col_idx, from_logic_qubit_id):
             # 判断 object_matrix 中两个列之间，是否可以拉
             for row_idx in range(object_matrix.shape[0]):
-                if (object_matrix[row_idx, from_col_idx].logic_qubit_id != from_logic_qubit_id):
+                if (
+                    object_matrix[row_idx, from_col_idx].logic_qubit_id
+                    != from_logic_qubit_id
+                ):
                     continue
-                if object_matrix[row_idx, from_col_idx].idle_status + object_matrix[row_idx, to_col_idx].idle_status == -2:
+                if (
+                    object_matrix[row_idx, from_col_idx].idle_status
+                    + object_matrix[row_idx, to_col_idx].idle_status
+                    == -2
+                ):
                     return False
             return True
 
@@ -237,15 +259,21 @@ class QRMapCompiler:
             # 执行拉动操作
             for row_idx in range(object_matrix.shape[0]):
                 # 如果当前元素属于要移动的逻辑量子比特
-                if object_matrix[row_idx, from_col_idx].logic_qubit_id == from_logic_qubit_id:
+                if (
+                    object_matrix[row_idx, from_col_idx].logic_qubit_id
+                    == from_logic_qubit_id
+                ):
                     # 将元素从源列移动到目标列
                     # 更新目标列的元素属性
-                    object_matrix[row_idx, to_col_idx].gate_id = object_matrix[row_idx,
-                                                                               from_col_idx].gate_id
-                    object_matrix[row_idx,
-                                  to_col_idx].logic_qubit_id = from_logic_qubit_id
-                    object_matrix[row_idx, to_col_idx].idle_status = object_matrix[row_idx,
-                                                                                   from_col_idx].idle_status
+                    object_matrix[row_idx, to_col_idx].gate_id = object_matrix[
+                        row_idx, from_col_idx
+                    ].gate_id
+                    object_matrix[row_idx, to_col_idx].logic_qubit_id = (
+                        from_logic_qubit_id
+                    )
+                    object_matrix[row_idx, to_col_idx].idle_status = object_matrix[
+                        row_idx, from_col_idx
+                    ].idle_status
 
                     # 清空源列的元素（设置为默认状态）
                     object_matrix[row_idx, from_col_idx].gate_id = 0
@@ -265,20 +293,31 @@ class QRMapCompiler:
                 if object_matrix[row_idx, pivot_idx].gate_id != 0:
                     # [row_id, pivot_idx]
                     for col_idx in range(object_matrix.shape[1]):
-                        if (pivot_idx == col_idx):
+                        if pivot_idx == col_idx:
                             continue
-                        if (object_matrix[row_idx, col_idx].gate_id == object_matrix[row_idx, pivot_idx].gate_id):
+                        if (
+                            object_matrix[row_idx, col_idx].gate_id
+                            == object_matrix[row_idx, pivot_idx].gate_id
+                        ):
                             # 将 col_idx 指向的列，拉到 direction 指向的附近
                             if direction == 1:  # 向右搜索
-                                for tmp_col_idx in range(pivot_idx + 1, object_matrix.shape[1]):
+                                for tmp_col_idx in range(
+                                    pivot_idx + 1, object_matrix.shape[1]
+                                ):
                                     ret = pull_it(
-                                        col_idx, tmp_col_idx, object_matrix[row_idx, col_idx].logic_qubit_id)
+                                        col_idx,
+                                        tmp_col_idx,
+                                        object_matrix[row_idx, col_idx].logic_qubit_id,
+                                    )
                                     if ret:
                                         break
                             else:  # 向左搜索
                                 for tmp_col_idx in range(pivot_idx - 1, 0, -1):
                                     ret = pull_it(
-                                        col_idx, tmp_col_idx, object_matrix[row_idx, col_idx].logic_qubit_id)
+                                        col_idx,
+                                        tmp_col_idx,
+                                        object_matrix[row_idx, col_idx].logic_qubit_id,
+                                    )
                                     if ret:
                                         break
             # 再拉自己没有的Gate的
@@ -286,20 +325,28 @@ class QRMapCompiler:
                 if object_matrix[row_idx, pivot_idx].gate_id == 0:
                     # [row_id, pivot_idx]
                     for col_idx in range(object_matrix.shape[1]):
-                        if (pivot_idx == col_idx):
+                        if pivot_idx == col_idx:
                             continue
-                        if (object_matrix[row_idx, col_idx].gate_id != 0):
+                        if object_matrix[row_idx, col_idx].gate_id != 0:
                             # 将 col_idx 指向的列，拉到 direction 指向的附近
                             if direction == 1:  # 向右搜索
-                                for tmp_col_idx in range(pivot_idx + 1, object_matrix.shape[1]):
+                                for tmp_col_idx in range(
+                                    pivot_idx + 1, object_matrix.shape[1]
+                                ):
                                     ret = pull_it(
-                                        col_idx, tmp_col_idx, object_matrix[row_idx, col_idx].logic_qubit_id)
+                                        col_idx,
+                                        tmp_col_idx,
+                                        object_matrix[row_idx, col_idx].logic_qubit_id,
+                                    )
                                     if ret:
                                         break
                             else:  # 向左搜索
                                 for tmp_col_idx in range(pivot_idx - 1, 0, -1):
                                     ret = pull_it(
-                                        col_idx, tmp_col_idx, object_matrix[row_idx, col_idx].logic_qubit_id)
+                                        col_idx,
+                                        tmp_col_idx,
+                                        object_matrix[row_idx, col_idx].logic_qubit_id,
+                                    )
                                     if ret:
                                         break
 
@@ -307,7 +354,7 @@ class QRMapCompiler:
             direction = 1 if pivot < mid_column else 0
             gate_pulling(pivot, direction)
             tmp_pivot = get_pivot_idx()
-            if (pivot == tmp_pivot):
+            if pivot == tmp_pivot:
                 break
             else:
                 pivot = tmp_pivot
@@ -316,27 +363,31 @@ class QRMapCompiler:
 
         # self.export_matrix_to_csv(
         #     object_matrix, base_filename="./output/qubit_matrix_optimized")
-        print(f"[{self.params['circuit_type']}, {self.params['qubit_num']}]: {init_qubit_num} → {after_qubit_num}")
+        print(
+            f"[{self.params['circuit_type']}, {self.params['qubit_num']}]: {init_qubit_num} → {after_qubit_num}"
+        )
 
         return object_matrix
 
     def get_not_all_zero_col_count(self, object_matrix):
-        """ 计算矩阵中gate_id非零列的数量 """
+        """计算矩阵中gate_id非零列的数量"""
         count = 0
         for col_idx in range(object_matrix.shape[1]):
             col_sum = 0
             for row_idx in range(object_matrix.shape[0]):
                 col_sum += object_matrix[row_idx, col_idx].gate_id
-            if (col_sum != 0):
+            if col_sum != 0:
                 count += 1
         return count
 
-    def export_matrix_to_csv(self, object_matrix, base_filename="./output/qubit_matrix"):
+    def export_matrix_to_csv(
+        self, object_matrix, base_filename="./output/qubit_matrix"
+    ):
         """
         导出三个矩阵到CSV文件，分别包含gate_id、logic_qubit_id和idle_status
 
         参数:
-        object_matrix: 包含QRMapMatrixElement对象的numpy数组
+        object_matrix: 包含QRMoveMatrixElement对象的numpy数组
         base_filename: 基础文件名路径，默认为"./output/qubit_matrix"
         """
         if object_matrix is None or object_matrix.size == 0:
@@ -351,24 +402,24 @@ class QRMapCompiler:
         for i in range(object_matrix.shape[0]):
             for j in range(object_matrix.shape[1]):
                 gate_id_matrix[i, j] = object_matrix[i, j].gate_id
-                logic_qubit_id_matrix[i,
-                                      j] = object_matrix[i, j].logic_qubit_id
+                logic_qubit_id_matrix[i, j] = object_matrix[i, j].logic_qubit_id
                 idle_status_matrix[i, j] = object_matrix[i, j].idle_status
 
         # 导出 gate_id 矩阵
         gate_df = pd.DataFrame(gate_id_matrix)
-        gate_df.to_csv(f"{base_filename}_gate_id.csv",
-                       index=False, header=False)
+        gate_df.to_csv(f"{base_filename}_gate_id.csv", index=False, header=False)
 
         # 导出 logic_qubit_id 矩阵
         logic_qubit_df = pd.DataFrame(logic_qubit_id_matrix)
         logic_qubit_df.to_csv(
-            f"{base_filename}_logic_qubit_id.csv", index=False, header=False)
+            f"{base_filename}_logic_qubit_id.csv", index=False, header=False
+        )
 
         # 导出 idle_status 矩阵
         idle_status_df = pd.DataFrame(idle_status_matrix)
         idle_status_df.to_csv(
-            f"{base_filename}_idle_status.csv", index=False, header=False)
+            f"{base_filename}_idle_status.csv", index=False, header=False
+        )
 
     def extract_matrix(self) -> np.ndarray:
         # 抽取矩阵
@@ -407,7 +458,7 @@ class QRMapCompiler:
         # 为每个元素创建对象
         for i in range(np_mat.shape[0]):
             for j in range(np_mat.shape[1]):
-                object_matrix[i, j] = QRMapMatrixElement(int(np_mat[i, j]))
+                object_matrix[i, j] = QRMoveMatrixElement(int(np_mat[i, j]))
         for col_idx in range(object_matrix.shape[1]):
             # 找到当前列中非零元素的最小和最大行索引
             non_zero_rows = []
@@ -420,15 +471,12 @@ class QRMapCompiler:
                 for row_idx in range(object_matrix.shape[0]):
                     if min_row <= row_idx <= max_row:
                         # 区间内的元素
-                        object_matrix[
-                            row_idx, col_idx].logic_qubit_id = col_idx
-                        object_matrix[
-                            row_idx, col_idx].idle_status = -1
+                        object_matrix[row_idx, col_idx].logic_qubit_id = col_idx
+                        object_matrix[row_idx, col_idx].idle_status = -1
                     else:
                         # 区间外的元素
                         object_matrix[row_idx, col_idx].logic_qubit_id = -1
-                        object_matrix[row_idx,
-                                      col_idx].idle_status = 0   # 可用状态
+                        object_matrix[row_idx, col_idx].idle_status = 0  # 可用状态
             else:
                 # 如果当前列全为零元素，则所有元素都标记为区间外
                 for row_idx in range(object_matrix.shape[0]):
