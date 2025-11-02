@@ -42,7 +42,7 @@ class QRMapCompiler:
 
     def compile_program(self):
         shrinked_matrix = self.explore_qubit_reuse()
-        self.scatter_to_chip(shrinked_matrix)
+        # self.scatter_to_chip(shrinked_matrix)
 
     def scatter_to_chip(self, shrinked_matrix):
         # 将优化后的矩阵，投到量子芯片上
