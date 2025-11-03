@@ -9,8 +9,8 @@ import networkx as nx
 
 class QRMoveMatrixElement:
     def __init__(self, gate_id: int):
-        self.gate_id = gate_id
-        self.logic_qubit_id = 0
+        self.gate_id = gate_id  # 所属量子CNOT门的ID
+        self.logic_qubit_id = 0  # 逻辑量子比特的ID
         self.idle_status = 0  # 0-可用 -1-占用
 
 
@@ -21,183 +21,39 @@ class QRMoveCompiler:
         quantum_circuit: QuantumCircuit,
         quantum_chip: QuantumChip,
         hardware_params: HardwareParams = None,
-        params: Optional[Dict] = None,
     ):
         """
-        quantum_circuit: 待优化的量子电路
-        quantum_chip: 量子芯片信息
+        quantum_circuit: 待优化的量子电路，类型为 QuantumCircuit
+        quantum_chip: 量子芯片，包括芯片形状，芯片大小
         hardware_params: 硬件参数
-        params: 编译器参数
         """
-        self.quantum_circuit = quantum_circuit
-        self.quantum_chip = quantum_chip
-        self.hardware_params = hardware_params
-
-        self.params = params or {}
-        self.idling_threshold = self.params.get(
-            "idling_threshold", None
-        )  # 空闲时间阈值，用于判断何时可以重用量子比特
-        self.use_most_qubit_rule = self.params.get(
-            "use_most_qubit_rule", True
-        )  # 是否使用最多量子位规则选择pivot列
-        self.qr_map = None  # 原始QR-Map数据结构
-        self.optimized_map = None  # 优化后的QR-Map数据结构
-        self.gate_dependencies = None  # 门依赖关系
-        self.qubit_reuse_count = 0  # 量子比特重用次数
+        self.quantum_circuit: QuantumCircuit = quantum_circuit
+        self.quantum_chip: QuantumChip = quantum_chip
+        self.hardware_params: HardwareParams = hardware_params
+        self.circuit_matrix: np.ndarray = None
 
     def compile_program(self):
-        shrinked_matrix = self.explore_qubit_reuse()
-        # self.scatter_to_chip(shrinked_matrix)
+        # 编译程序，三阶段优化
+        self.split_compose_circuit()  # Stage 1：拆分并组合电路
+        self.pull_to_minimize_width()  # Stage 1：最小化电路宽度
+        self.eliminate_idle_period()  # Stage 2：消除气泡
+        self.compress_depth_with_extra_qubit()  # Stage 3：通过额外的量子比特，来进行深度压缩
 
-    def scatter_to_chip(self, shrinked_matrix):
-        # 将优化后的矩阵，投到量子芯片上
-        # 输入矩阵，输出映射数据结构
-        # self.export_matrix_to_csv(shrinked_matrix, "./output/shrinked_matrix")
-        # 构建 shrinked_matrix 上的热力图
-        _q_num = 0  # 所需要的物理比特的数量
-        _q_idxs = []
-        for col_idx in range(shrinked_matrix.shape[1]):
-            col_sum = 0
-            for row_idx in range(shrinked_matrix.shape[0]):
-                col_sum += shrinked_matrix[row_idx, col_idx].gate_id
-            if col_sum != 0:
-                _q_num += 1
-                _q_idxs.append(col_idx)
+    def compress_depth_with_extra_qubit(self):
+        # Stage 3：通过额外的量子比特，来进行深度压缩
+        pass
 
-        heat_map = np.array([[0] * _q_num for _ in range(_q_num)])
+    def eliminate_idle_period(self):
+        # Stage 2：消除气泡
+        pass
 
-        def get_two_col_shared_bit_num(col_idx_a, col_idx_b):
-            count = 0
-            for row_idx in range(shrinked_matrix.shape[0]):
-                gate_id_a = shrinked_matrix[row_idx, col_idx_a].gate_id
-                gate_id_b = shrinked_matrix[row_idx, col_idx_b].gate_id
-                if gate_id_a != 0 and gate_id_a == gate_id_b:
-                    count += 1
-            return count
+    def pull_to_minimize_width(self):
+        # Stage 1：最小化电路宽度
+        pass
 
-        for i in range(_q_num):
-            for j in range(i + 1, _q_num):
-                col_idx_a, col_idx_b = _q_idxs[i], _q_idxs[j]
-                heat_map[i, j] = get_two_col_shared_bit_num(col_idx_a, col_idx_b)
-                heat_map[j, i] = heat_map[i, j]
-
-        # 构建逻辑量子比特交互图
-        interaction_graph = nx.Graph()
-        for i in range(_q_num):
-            interaction_graph.add_node(i)
-
-        for i in range(_q_num):
-            for j in range(i + 1, _q_num):
-                if heat_map[i, j] > 0:
-                    interaction_graph.add_edge(i, j, weight=heat_map[i, j])
-
-        # 获取芯片拓扑结构
-        chip_graph = self.quantum_chip.graph
-
-        # 使用基于交互强度的映射算法
-        # 1. 找到逻辑量子比特之间交互最强的一对
-        # 2. 将这对逻辑量子比特映射到物理芯片上相邻的节点
-        # 3. 继续映射剩余的逻辑量子比特，优先选择与已映射量子比特在芯片上相邻的节点
-
-        # 创建映射
-        self.qubit_mapping = {}  # 逻辑量子比特 -> 物理量子比特
-
-        # 如果没有交互边，使用简单的映射
-        if not list(interaction_graph.edges()):
-            # 简单映射：按顺序映射
-            physical_nodes = list(chip_graph.nodes())
-            for i in range(_q_num):
-                if i < len(physical_nodes):
-                    self.qubit_mapping[i] = physical_nodes[i]
-                else:
-                    self.qubit_mapping[i] = None
-        else:
-            # 基于交互强度的映射
-            # 找到权重最大的边
-            edges_sorted_by_weight = sorted(
-                interaction_graph.edges(data=True),
-                key=lambda x: x[2]["weight"],
-                reverse=True,
-            )
-
-            # 已映射的逻辑量子比特和物理量子比特
-            mapped_logical = set()
-            mapped_physical = set()
-
-            # 如果有边，先映射交互最强的一对逻辑量子比特到相邻的物理量子比特
-            if edges_sorted_by_weight:
-                # 取权重最大的边
-                u, v, weight = edges_sorted_by_weight[0]
-
-                # 在物理芯片上找到一条边（相邻的节点）
-                chip_edges = list(chip_graph.edges())
-                if chip_edges:
-                    physical_u, physical_v = chip_edges[0]
-                    self.qubit_mapping[u] = physical_u
-                    self.qubit_mapping[v] = physical_v
-                    mapped_logical.update([u, v])
-                    mapped_physical.update([physical_u, physical_v])
-
-            # 映射剩余的逻辑量子比特
-            remaining_logical = set(range(_q_num)) - mapped_logical
-            remaining_physical = set(chip_graph.nodes()) - mapped_physical
-
-            # 为每个剩余的逻辑量子比特找到最佳的物理量子比特
-            while remaining_logical:
-                best_logical = None
-                best_physical = None
-                best_score = -1
-
-                # 对每个未映射的逻辑量子比特
-                for logical in remaining_logical:
-                    # 计算它与已映射逻辑量子比特的交互强度
-                    connections = []
-                    for mapped_logical_qubit in mapped_logical:
-                        if interaction_graph.has_edge(logical, mapped_logical_qubit):
-                            weight = interaction_graph[logical][mapped_logical_qubit][
-                                "weight"
-                            ]
-                            connections.append((mapped_logical_qubit, weight))
-
-                    # 对每个未映射的物理量子比特
-                    for physical in remaining_physical:
-                        # 计算这个物理量子比特与已映射物理量子比特的连接程度
-                        score = 0
-                        for mapped_logical_qubit, weight in connections:
-                            mapped_physical_qubit = self.qubit_mapping[
-                                mapped_logical_qubit
-                            ]
-                            # 如果物理量子比特与已映射的物理量子比特相邻，则加分
-                            if chip_graph.has_edge(physical, mapped_physical_qubit):
-                                score += weight
-
-                        # 更新最佳选择
-                        if score > best_score:
-                            best_score = score
-                            best_logical = logical
-                            best_physical = physical
-
-                # 如果找不到有连接的映射，选择任意一个
-                if best_logical is None:
-                    best_logical = remaining_logical.pop()
-                    best_physical = (
-                        remaining_physical.pop() if remaining_physical else None
-                    )
-
-                # 执行映射
-                if best_logical is not None and best_physical is not None:
-                    self.qubit_mapping[best_logical] = best_physical
-                    mapped_logical.add(best_logical)
-                    mapped_physical.add(best_physical)
-                    remaining_logical.discard(best_logical)
-                    remaining_physical.discard(best_physical)
-                elif best_logical is not None:
-                    # 没有足够的物理量子比特
-                    self.qubit_mapping[best_logical] = None
-                    mapped_logical.add(best_logical)
-                    remaining_logical.discard(best_logical)
-
-        print(f"逻辑量子比特到物理量子比特的映射: {self.qubit_mapping}")
+    def split_compose_circuit(self):
+        # Stage 1：拆分并组合电路
+        pass
 
     def explore_qubit_reuse(self) -> np.ndarray:
         # 抽取矩阵；收缩，输出优化后的矩阵
@@ -482,7 +338,5 @@ class QRMoveCompiler:
                 for row_idx in range(object_matrix.shape[0]):
                     object_matrix[row_idx, col_idx].logic_qubit_id = -1
                     object_matrix[row_idx, col_idx].idle_status = 0
-
-        # self.export_matrix_to_csv(object_matrix)
 
         return object_matrix
