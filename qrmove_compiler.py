@@ -5,7 +5,7 @@ from hardware import HardwareParams
 from quantum_chip import QuantumChip
 import pandas as pd
 import networkx as nx
-
+from copy import deepcopy
 
 class QRMoveMatrixElement:
     def __init__(self, gate_id: int):
@@ -31,11 +31,12 @@ class QRMoveCompiler:
         self.quantum_chip: QuantumChip = quantum_chip
         self.hardware_params: HardwareParams = hardware_params
         self.circuit_matrix: np.ndarray = None
+        self.extract_matrix()  # 提取电路矩阵
+        self.compile_program()
 
     def compile_program(self):
         # 编译程序，三阶段优化
-        self.split_compose_circuit()  # Stage 1：拆分并组合电路
-        self.pull_to_minimize_width()  # Stage 1：最小化电路宽度
+        self.split_pull()  # Stage 1：拆分并组合电路、拉取以最小化电路宽度
         self.eliminate_idle_period()  # Stage 2：消除气泡
         self.compress_depth_with_extra_qubit()  # Stage 3：通过额外的量子比特，来进行深度压缩
 
@@ -47,15 +48,9 @@ class QRMoveCompiler:
         # Stage 2：消除气泡
         pass
 
-    def pull_to_minimize_width(self):
-        # Stage 1：最小化电路宽度
-        pass
+    def split_pull(self):
+        # Stage 1：拆分并组合电路、拉取以最小化电路宽度
 
-    def split_compose_circuit(self):
-        # Stage 1：拆分并组合电路
-        pass
-
-    def explore_qubit_reuse(self) -> np.ndarray:
         # 抽取矩阵；收缩，输出优化后的矩阵
         # 1. 每一行的相同数字，进行连线（黑线）
         # 2. 每一个纵列的所有数字，进行连线（红线）
@@ -65,11 +60,7 @@ class QRMoveCompiler:
         # Qubit Reuse会有一个, (q_3 -> q_2)[g_2], (q_4 -> q_2)[g_1]
         # 红线：[g_0, g_1, q_4, q_4], 假设移动q_4到q_2, 则表示为 [g_0, g_1, q_2, q_4]（原始的在q_4上）
         # another：[g_0, g_4, q_0, q_0]，移动到q_3，则表示为 [g_0, g_4, q_3, q_0]
-        object_matrix = self.extract_matrix()
-
-        self.export_matrix_to_csv(object_matrix)
-
-        init_qubit_num = self.get_not_all_zero_col_count(object_matrix)
+        object_matrix: np.ndarray = self.circuit_matrix
 
         def get_pivot_idx():
             # 选取最多非0数字的列idx作为pivot
@@ -215,18 +206,11 @@ class QRMoveCompiler:
             else:
                 pivot = tmp_pivot
 
-        after_qubit_num = self.get_not_all_zero_col_count(object_matrix)
-
-        # self.export_matrix_to_csv(
-        #     object_matrix, base_filename="./output/qubit_matrix_optimized")
-        print(
-            f"[{self.params['circuit_type']}, {self.params['qubit_num']}]: {init_qubit_num} → {after_qubit_num}"
-        )
-
-        return object_matrix
-
-    def get_not_all_zero_col_count(self, object_matrix):
+    def get_not_all_zero_col_count(self, circuit_matrix=None):
         """计算矩阵中gate_id非零列的数量"""
+        object_matrix = (
+            self.circuit_matrix if circuit_matrix is None else circuit_matrix
+        )
         count = 0
         for col_idx in range(object_matrix.shape[1]):
             col_sum = 0
@@ -234,6 +218,7 @@ class QRMoveCompiler:
                 col_sum += object_matrix[row_idx, col_idx].gate_id
             if col_sum != 0:
                 count += 1
+        print("logical qubit num", count)
         return count
 
     def export_matrix_to_csv(
@@ -338,5 +323,5 @@ class QRMoveCompiler:
                 for row_idx in range(object_matrix.shape[0]):
                     object_matrix[row_idx, col_idx].logic_qubit_id = -1
                     object_matrix[row_idx, col_idx].idle_status = 0
-
-        return object_matrix
+        self.circuit_matrix = object_matrix
+        self.original_matrix = deepcopy(object_matrix)
