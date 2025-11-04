@@ -3,6 +3,7 @@ import pandas as pd
 from qiskit import QuantumCircuit
 import math
 from hardware import HardwareParams
+from quantum_chip import QuantumChip
 
 
 class QRMoveMatrixElement:
@@ -22,22 +23,36 @@ class QRMoveMatrixElement:
 class QRMoveMatrix:
     # 传入：量子电路、硬件参数
     # 矩阵形式的量子电路
-    def __init__(self, circuit: QuantumCircuit, hardware_params: HardwareParams):
+    def __init__(
+        self,
+        circuit: QuantumCircuit,
+        quantum_chip: QuantumChip,
+        hardware_params: HardwareParams,
+    ):
         self.quantum_circuit: QuantumCircuit = circuit
+        self.quantum_chip: QuantumChip = quantum_chip
         self.hardware_params = hardware_params
         self.matrix: np.ndarray = None
         self.extract_matrix()
-        
-    def construct_dag(self):
-        # 将现有的矩阵表示转化为DAG表示，方便计算
-        pass
+        self.construct_dag()
 
     def depth_change(self, logic_qubit_id, target_line, target_time_slot):
         # 拉取后，电路深度的变化
         pass
 
-    def pull_block_to(self, logic_qubit_id, target_line, target_time_slot):
+    def pull_block(self, logic_qubit_id, target_line, target_time_slot):
         # 拉取一个块到另一个块中
+        # 1. 要考虑级联移动
+        # 2. 要考虑在矩阵中插入新的元素
+        # 3. 要考虑在DAG中变换依赖
+        pass
+
+    def get_pivot_idx(self) -> int:
+        # 获取矩阵的枢轴
+        pass
+
+    def construct_dag(self):
+        # 将现有的矩阵表示转化为双重DAG表示，方便计算
         pass
 
     def get_lqubit_num(self, circuit_matrix=None):

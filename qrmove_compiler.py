@@ -26,7 +26,7 @@ class QRMoveCompiler:
         self.quantum_chip: QuantumChip = quantum_chip
         self.hardware_params: HardwareParams = hardware_params
         self.circuit_matrix: QRMoveMatrix = QRMoveMatrix(
-            quantum_circuit, hardware_params
+            quantum_circuit, quantum_chip, hardware_params
         )
         self.compile_program()
 
