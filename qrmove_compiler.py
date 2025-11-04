@@ -6,12 +6,21 @@ from quantum_chip import QuantumChip
 import pandas as pd
 import networkx as nx
 from copy import deepcopy
+import math
+
 
 class QRMoveMatrixElement:
-    def __init__(self, gate_id: int):
+    def __init__(
+        self,
+        gate_id: int,
+        logic_qubit_id: int = 0,
+        idle_status: int = 0,
+        is_mrp: bool = False,
+    ):
         self.gate_id = gate_id  # 所属量子CNOT门的ID
-        self.logic_qubit_id = 0  # 逻辑量子比特的ID
-        self.idle_status = 0  # 0-可用 -1-占用
+        self.logic_qubit_id = logic_qubit_id  # 逻辑量子比特的ID
+        self.idle_status = idle_status  # 0-可用 -1-占用
+        self.is_mrp = is_mrp  # 是否为 测量-重置 阶段
 
 
 class QRMoveCompiler:
@@ -205,6 +214,7 @@ class QRMoveCompiler:
                 break
             else:
                 pivot = tmp_pivot
+        pass  # 完成拉取
 
     def get_not_all_zero_col_count(self, circuit_matrix=None):
         """计算矩阵中gate_id非零列的数量"""
@@ -262,6 +272,50 @@ class QRMoveCompiler:
             f"{base_filename}_idle_status.csv", index=False, header=False
         )
 
+    def get_mrp_matrix(self, circuit_matrix=None) -> np.ndarray:
+        """获取测量-重置的状态矩阵"""
+        object_matrix = (
+            self.circuit_matrix if circuit_matrix is None else circuit_matrix
+        )
+        tmp_object_matrix = np.empty(object_matrix.shape)
+        for i in range(object_matrix.shape[0]):
+            for j in range(object_matrix.shape[1]):
+                tmp_object_matrix[i, j] = object_matrix[i, j].is_mrp
+        return tmp_object_matrix
+
+    def get_idle_status_matrix(self, circuit_matrix=None) -> np.ndarray:
+        """获取比特状态的矩阵"""
+        object_matrix = (
+            self.circuit_matrix if circuit_matrix is None else circuit_matrix
+        )
+        tmp_object_matrix = np.empty(object_matrix.shape)
+        for i in range(object_matrix.shape[0]):
+            for j in range(object_matrix.shape[1]):
+                tmp_object_matrix[i, j] = object_matrix[i, j].idle_status
+        return tmp_object_matrix
+
+    def get_logical_qubit_id_matrix(self, circuit_matrix=None) -> np.ndarray:
+        """获取逻辑ID的矩阵"""
+        object_matrix = (
+            self.circuit_matrix if circuit_matrix is None else circuit_matrix
+        )
+        tmp_object_matrix = np.empty(object_matrix.shape)
+        for i in range(object_matrix.shape[0]):
+            for j in range(object_matrix.shape[1]):
+                tmp_object_matrix[i, j] = object_matrix[i, j].logic_qubit_id
+        return tmp_object_matrix
+
+    def get_gate_id_matrix(self, circuit_matrix=None) -> np.ndarray:
+        """获取门ID的矩阵"""
+        object_matrix = (
+            self.circuit_matrix if circuit_matrix is None else circuit_matrix
+        )
+        tmp_object_matrix = np.empty(object_matrix.shape)
+        for i in range(object_matrix.shape[0]):
+            for j in range(object_matrix.shape[1]):
+                tmp_object_matrix[i, j] = object_matrix[i, j].gate_id
+        return tmp_object_matrix
+
     def extract_matrix(self) -> np.ndarray:
         # 抽取矩阵
         qc = self.quantum_circuit
@@ -295,6 +349,10 @@ class QRMoveCompiler:
         np_mat = np.array(mat)
         np_mat = np_mat.T
 
+        hp = self.hardware_params
+        # 计算「测量-重置时间」和「双比特门」时间的比值
+        mrp_2q_ratio = math.ceil((hp.time_meas + hp.time_reset) / hp.time_2q)
+
         object_matrix = np.empty(np_mat.shape, dtype=object)
         # 为每个元素创建对象
         for i in range(np_mat.shape[0]):
@@ -313,7 +371,7 @@ class QRMoveCompiler:
                     if min_row <= row_idx <= max_row:
                         # 区间内的元素
                         object_matrix[row_idx, col_idx].logic_qubit_id = col_idx
-                        object_matrix[row_idx, col_idx].idle_status = -1
+                        object_matrix[row_idx, col_idx].idle_status = -1  # 不可用状态
                     else:
                         # 区间外的元素
                         object_matrix[row_idx, col_idx].logic_qubit_id = -1
@@ -323,5 +381,33 @@ class QRMoveCompiler:
                 for row_idx in range(object_matrix.shape[0]):
                     object_matrix[row_idx, col_idx].logic_qubit_id = -1
                     object_matrix[row_idx, col_idx].idle_status = 0
+
+        rows, cols = object_matrix.shape
+        for _ in range(1000):
+            new_row = np.array(
+                [[QRMoveMatrixElement(int(0), int(-1), int(0)) for i in range(cols)]]
+            )
+            object_matrix = np.vstack((object_matrix, new_row))
+
+        # 对于处于MRP阶段的元素：
+        #    门ID           gate_id         置为0
+        #    逻辑比特ID      logic_qubit_id  置为列索引
+        #    空闲状态        idle_status     置为-1
+        #    是否为MRP阶段   is_mrp          置为True
+        for j in range(cols):
+            find_idle_status = False
+            inserted_row = 0
+            for i in range(rows + 1000):
+                if object_matrix[i, j].idle_status == 0 and (not find_idle_status):
+                    continue
+                if object_matrix[i, j].idle_status == -1:
+                    find_idle_status = True
+                    continue
+                if find_idle_status and inserted_row < mrp_2q_ratio:
+                    object_matrix[i, j].idle_status = -1
+                    object_matrix[i, j].logic_qubit_id = j
+                    object_matrix[i, j].is_mrp = True
+                    inserted_row += 1
+
         self.circuit_matrix = object_matrix
         self.original_matrix = deepcopy(object_matrix)
