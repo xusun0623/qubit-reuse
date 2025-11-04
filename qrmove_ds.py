@@ -27,6 +27,18 @@ class QRMoveMatrix:
         self.hardware_params = hardware_params
         self.matrix: np.ndarray = None
         self.extract_matrix()
+        
+    def construct_dag(self):
+        # 将现有的矩阵表示转化为DAG表示，方便计算
+        pass
+
+    def depth_change(self, logic_qubit_id, target_line, target_time_slot):
+        # 拉取后，电路深度的变化
+        pass
+
+    def pull_block_to(self, logic_qubit_id, target_line, target_time_slot):
+        # 拉取一个块到另一个块中
+        pass
 
     def get_lqubit_num(self, circuit_matrix=None):
         """获取逻辑比特的数量"""
