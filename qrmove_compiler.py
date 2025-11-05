@@ -47,159 +47,47 @@ class QRMoveCompiler:
     def pull_to_min_width(self):
         # Stage 1：拆分并组合电路、拉取以最小化电路宽度，将电路的宽度拉到极致
 
-        # 抽取矩阵；收缩，输出优化后的矩阵
-        # 1. 每一行的相同数字，进行连线（黑线）
-        # 2. 每一个纵列的所有数字，进行连线（红线）
-        # 3. 黑线可以收缩/扩展，但是红线必须协同左右移动
-        # 4. 任意两条红线，不能交叉
-        # 5. 最小化横向宽度
-        # Qubit Reuse会有一个, (q_3 -> q_2)[g_2], (q_4 -> q_2)[g_1]
-        # 红线：[g_0, g_1, q_4, q_4], 假设移动q_4到q_2, 则表示为 [g_0, g_1, q_2, q_4]（原始的在q_4上）
-        # another：[g_0, g_4, q_0, q_0]，移动到q_3，则表示为 [g_0, g_4, q_3, q_0]
-        object_matrix = self.circuit_matrix.matrix
+        matrix = self.circuit_matrix
+        pivot_idx = matrix.get_pivot_idx()  # 枢轴
 
-        def get_pivot_idx():
-            # 选取最多非0数字的列idx作为pivot
-            non_zero_counts = np.array(
-                [
-                    sum(
-                        1
-                        for row in range(object_matrix.shape[0])
-                        if object_matrix[row, col].gate_id != 0
-                    )
-                    for col in range(object_matrix.shape[1])
-                ]
-            )
-            return np.argmax(non_zero_counts)
-
-        pivot = get_pivot_idx()
-        direction = 1  # 0-向左 1-向右
-        mid_column = object_matrix.shape[1] / 2
-
-        def can_be_pulled(from_col_idx, to_col_idx, from_logic_qubit_id):
-            # 判断 object_matrix 中两个列之间，是否可以拉
-            for row_idx in range(object_matrix.shape[0]):
-                if (
-                    object_matrix[row_idx, from_col_idx].logic_qubit_id
-                    != from_logic_qubit_id
-                ):
-                    continue
-                if (
-                    object_matrix[row_idx, from_col_idx].idle_status
-                    + object_matrix[row_idx, to_col_idx].idle_status
-                    == -2
-                ):
-                    return False
-            return True
-
-        def pull_it(from_col_idx, to_col_idx, from_logic_qubit_id):
-            # 将 from_col_idx 中所有 logic_qubit_id 为 from_logic_qubit_id 的元素，移动到 to_col_idx 列
-
-            # 首先检查是否可以拉动
-            if not can_be_pulled(from_col_idx, to_col_idx, from_logic_qubit_id):
-                return False
-
-            # 执行拉动操作
-            for row_idx in range(object_matrix.shape[0]):
-                # 如果当前元素属于要移动的逻辑量子比特
-                if (
-                    object_matrix[row_idx, from_col_idx].logic_qubit_id
-                    == from_logic_qubit_id
-                ):
-                    # 将元素从源列移动到目标列
-                    # 更新目标列的元素属性
-                    object_matrix[row_idx, to_col_idx].gate_id = object_matrix[
-                        row_idx, from_col_idx
-                    ].gate_id
-                    object_matrix[row_idx, to_col_idx].logic_qubit_id = (
-                        from_logic_qubit_id
-                    )
-                    object_matrix[row_idx, to_col_idx].idle_status = object_matrix[
-                        row_idx, from_col_idx
-                    ].idle_status
-
-                    # 清空源列的元素（设置为默认状态）
-                    object_matrix[row_idx, from_col_idx].gate_id = 0
-                    object_matrix[row_idx, from_col_idx].logic_qubit_id = -1
-                    object_matrix[row_idx, from_col_idx].idle_status = 0
-
-            return True
-
-        def gate_pulling(pivot_idx, direction):
-            # 从pivot所在列的gate开始拉取，将其他所有的门拉到自己附近
-            # 规则：
-            # 1. 每一列中logic_qubit_id的所有元素，必须在横向协同移动
-            # 2. 仅可以拉到idle_status为0的目标位置上，如果一列上有任何一个不为-1 logic_qubit_id冲突了，都不能拉
-
-            # 先拉自己有的Gate的
-            for row_idx in range(object_matrix.shape[0]):
-                if object_matrix[row_idx, pivot_idx].gate_id != 0:
-                    # [row_id, pivot_idx]
-                    for col_idx in range(object_matrix.shape[1]):
-                        if pivot_idx == col_idx:
-                            continue
-                        if (
-                            object_matrix[row_idx, col_idx].gate_id
-                            == object_matrix[row_idx, pivot_idx].gate_id
-                        ):
-                            # 将 col_idx 指向的列，拉到 direction 指向的附近
-                            if direction == 1:  # 向右搜索
-                                for tmp_col_idx in range(
-                                    pivot_idx + 1, object_matrix.shape[1]
-                                ):
-                                    ret = pull_it(
-                                        col_idx,
-                                        tmp_col_idx,
-                                        object_matrix[row_idx, col_idx].logic_qubit_id,
-                                    )
-                                    if ret:
-                                        break
-                            else:  # 向左搜索
-                                for tmp_col_idx in range(pivot_idx - 1, 0, -1):
-                                    ret = pull_it(
-                                        col_idx,
-                                        tmp_col_idx,
-                                        object_matrix[row_idx, col_idx].logic_qubit_id,
-                                    )
-                                    if ret:
-                                        break
-            # 再拉自己没有的Gate的
-            for row_idx in range(object_matrix.shape[0]):
-                if object_matrix[row_idx, pivot_idx].gate_id == 0:
-                    # [row_id, pivot_idx]
-                    for col_idx in range(object_matrix.shape[1]):
-                        if pivot_idx == col_idx:
-                            continue
-                        if object_matrix[row_idx, col_idx].gate_id != 0:
-                            # 将 col_idx 指向的列，拉到 direction 指向的附近
-                            if direction == 1:  # 向右搜索
-                                for tmp_col_idx in range(
-                                    pivot_idx + 1, object_matrix.shape[1]
-                                ):
-                                    ret = pull_it(
-                                        col_idx,
-                                        tmp_col_idx,
-                                        object_matrix[row_idx, col_idx].logic_qubit_id,
-                                    )
-                                    if ret:
-                                        break
-                            else:  # 向左搜索
-                                for tmp_col_idx in range(pivot_idx - 1, 0, -1):
-                                    ret = pull_it(
-                                        col_idx,
-                                        tmp_col_idx,
-                                        object_matrix[row_idx, col_idx].logic_qubit_id,
-                                    )
-                                    if ret:
-                                        break
+        def near_col(col_idx):
+            # 获取 col_idx 列的相邻列
+            col_num = matrix.matrix.shape[1]
+            near_col_idx = []
+            for i in range(1, col_num):
+                if col_idx - i >= 0:
+                    near_col_idx.append(col_idx - i)
+                if col_idx + i < col_num:
+                    near_col_idx.append(col_idx + i)
+            return near_col_idx
 
         while True:
-            direction = 1 if pivot < mid_column else 0
-            gate_pulling(pivot, direction)
-            tmp_pivot = get_pivot_idx()
-            if pivot == tmp_pivot:
+            row_num, col_num = matrix.matrix.shape
+            pulled_logic_qid = []
+            for i in range(row_num):
+                # 先拉取带 gate_id 的列
+                gid = matrix.matrix[i, pivot_idx].gate_id
+                if gid != 0:
+                    for j in near_col(pivot_idx):
+                        ij_gid = matrix.matrix[i, j].gate_id
+                        ij_logic_id = matrix.matrix[i, j].logic_qubit_id
+                        if (
+                            ij_gid != 0
+                            and j != pivot_idx
+                            and (j_logic_id not in pulled_logic_qid)
+                        ):
+                            pulled_logic_qid.append(ij_logic_id)
+                            matrix.try_pull_block(j, ij_logic_id, pivot_idx)
+
+            # 再拉取不带 gate_id 的列
+            for j in near_col(pivot_idx):
+                for i in range(row_num):
+                    ij_logic_id = matrix.matrix[i, j].logic_qubit_id
+                    if ij_logic_id not in pulled_logic_qid:
+                        pulled_logic_qid.append(ij_logic_id)
+                        matrix.try_pull_block(j, ij_logic_id, pivot_idx)
+                        
+            # 重新计算枢轴
+            tmp_pivot = matrix.get_pivot_idx()
+            if tmp_pivot == pivot_idx:
                 break
-            else:
-                pivot = tmp_pivot
-        self.circuit_matrix.get_lqubit_num()
-        pass  # 完成拉取
