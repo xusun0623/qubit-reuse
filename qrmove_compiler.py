@@ -86,7 +86,7 @@ class QRMoveCompiler:
                     if ij_logic_id not in pulled_logic_qid:
                         pulled_logic_qid.append(ij_logic_id)
                         matrix.try_pull_block(j, ij_logic_id, pivot_idx)
-                        
+            
             # 重新计算枢轴
             tmp_pivot = matrix.get_pivot_idx()
             if tmp_pivot == pivot_idx:

@@ -10,6 +10,7 @@ class QRMoveDAGNode:
     # DAG的Gate节点
     def __init__(self):
         # 将原来的矩阵元素属性复制过来
+        self.depth = 0
         self.gate_id: int = None
         self.logic_qid_a: int = None
         self.logic_qid_b: int = None
@@ -24,6 +25,9 @@ class QRMoveDAGBlock:
         # 当前块的起点，应该连到节点列表第一个节点
         # 节点列表的最后一个节点，应该连接到块的终点
         # 节点的列表
+        self.start_depth = 0
+        self.end_depth = 0
+        self.column_id: int = None
         self.nodes: list[QRMoveDAGNode] = []
         # 下一个块
         self.next_blocks: list[QRMoveDAGBlock] = []
@@ -32,11 +36,17 @@ class QRMoveDAGBlock:
 
 class QRMoveDAG:
     # DAG的CP块
-    def __init__(self, matrix: np.ndarray):
+    def __init__(self, matrix: np.ndarray, mrp_time):
+        self.mrp_time = mrp_time
         self.matrix: np.ndarray = matrix
         self.dag_root: QRMoveDAGBlock = QRMoveDAGBlock()
         self.dag_leaf: QRMoveDAGBlock = QRMoveDAGBlock()
         self.build_dag()
+
+    def get_circuit_depth(self):
+        # 获取当前电路的最大深度
+        depth = self.dag_leaf.start_depth
+        return depth
 
     def is_col_empty(self, col_idx):
         # 判断某个列是否为空
@@ -49,16 +59,21 @@ class QRMoveDAG:
         added_node: dict[int, QRMoveDAGNode] = {}  # 用于记录已经添加的节点
         matrix = self.matrix
         dag_root = self.dag_root
+
+        dag_root.depth = 0
+
         row_num, col_num = matrix.shape
         for j in range(col_num):
             # 获取某个列
             if self.is_col_empty(j):
                 continue
             block: QRMoveDAGBlock = QRMoveDAGBlock()
+            block.column_id = j
 
             # 双向链表
             dag_root.next_blocks.append(block)
             block.last_blocks.append(dag_root)
+
             block.next_blocks.append(self.dag_leaf)
             self.dag_leaf.last_blocks.append(block)
 
@@ -67,9 +82,15 @@ class QRMoveDAG:
                 _gate_id = matrix[i, j].gate_id
                 _logic_qubit_id = matrix[i, j].logic_qubit_id
                 if _gate_id != 0:
+                    # 块的深度
+                    if i - 1 < 0 or matrix[i - 1, j].gate_id == 0:
+                        block.start_depth = i + 1
+                    if i + 1 >= row_num or matrix[i + 1, j].gate_id == 0:
+                        block.end_depth = i + 1
                     if _gate_id not in added_node:
                         # 没有添加过
                         _node = QRMoveDAGNode()
+                        _node.depth = i + 1  # 赋予节点深度
                         _node.gate_id = _gate_id
                         _node.logic_qid_a = _logic_qubit_id
                         block.nodes.append(_node)
@@ -79,6 +100,17 @@ class QRMoveDAG:
                         _node = added_node[_gate_id]
                         _node.logic_qid_b = _logic_qubit_id
                         block.nodes.append(_node)
+
+            nodes = block.nodes
+            for node_idx in range(len(nodes) - 1):
+                # 获取两个节点
+                node_a, node_b = nodes[node_idx], nodes[node_idx + 1]
+                node_a.next_nodes.append(node_b)
+                node_b.last_nodes.append(node_a)
+        leaf_last_blocks = self.dag_leaf.last_blocks
+        max_depth = max([block.end_depth for block in leaf_last_blocks])
+        self.dag_leaf.start_depth = max_depth + self.mrp_time
+        self.dag_leaf.end_depth = max_depth + self.mrp_time
 
 
 class QRMoveMatrixElement:
@@ -110,11 +142,12 @@ class QRMoveMatrix:
         self.matrix: np.ndarray = None
         self.extract_matrix()
         self.construct_dag()
+        pass
 
     def try_pull_block(self, from_col_idx, logic_qid, to_col_idx):
         # from_col_idx: 源列索引，to_col_idx: 目标列索引，logic_qid: 逻辑量子比特ID
         # 需要多次尝试，直到拉到最近的量子比特为止
-        
+
         pass
 
     def get_column_gate_ids(self, col_idx):
@@ -157,7 +190,10 @@ class QRMoveMatrix:
 
     def construct_dag(self):
         # 将现有的矩阵表示转化为双重DAG表示，方便计算
-        self.circuit_dag: QRMoveDAG = QRMoveDAG(self.matrix)
+        hp = self.hardware_params
+        # 计算「测量-重置时间」和「双比特门」时间的比值
+        mrp_time = math.ceil((hp.time_meas + hp.time_reset) / hp.time_2q)
+        self.circuit_dag: QRMoveDAG = QRMoveDAG(self.matrix, mrp_time)
 
     def get_lqubit_num(self, circuit_matrix=None):
         """获取逻辑比特的数量"""
