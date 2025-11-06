@@ -66,7 +66,10 @@ class QRMoveDAG:
         if len(block_pointer.next_blocks) == 0:
             print("所在的列没有块")
             return blocks
-        while len(block_pointer.next_blocks) != 0:
+        while (
+            len(block_pointer.next_blocks) != 0
+            and block_pointer.next_blocks[0].logic_qid != None
+        ):
             block_pointer = block_pointer.next_blocks[0]
             blocks.append(block_pointer)
         return blocks
@@ -115,16 +118,85 @@ class QRMoveDAG:
             if can_pull:
                 actual_pull_col = i
                 break
-        
+
         # 拉取 block 块到目标列
-        confirm_pull(from_col_idx, logic_qid, actual_pull_col)
-    
-    def confirm_pull(self, from_col_idx, logic_qid, to_col_idx):
-        '''确认拉取'''
+        confirm_pull(from_col_idx, logic_qid, actual_pull_col, src_block)
+
+    def confirm_pull(
+        self, from_col_idx, logic_qid, to_col_idx, src_block: QRMoveDAGBlock
+    ):
+        """确认拉取"""
         to_col_blocks = self.get_blocks_by_column_id(to_col_idx)
-        # 通过 目标块 / 双块 来计算覆盖率，从而确定拉取到的目标块槽
+        # 实际插入的位置
+        actual_insert_pos = None
+        src_block_middle_depth = (
+            src_block.start_depth + src_block.end_depth
+        ) / 2  # 居中的位置
+        if src_block_middle_depth <= to_col_blocks[0].start_depth:
+            actual_insert_pos = -1
+        if actual_insert_pos == None:
+            for i in range(0, range(len(to_col_blocks) - 1)):
+                depth_range = [
+                    to_col_blocks[i].start_depth,
+                    to_col_blocks[i + 1].start_depth,
+                ]
+                if (
+                    src_block_middle_depth >= depth_range[0]
+                    and src_block_middle_depth <= depth_range[1]
+                ):
+                    actual_insert_pos = i
+        if actual_insert_pos == None:
+            actual_insert_pos = len(to_col_blocks) - 1
+
+        # 完成 Move 之后，需要更新 depth 的块
+        to_update_blocks: list[QRMoveDAGBlock] = []
+
+        # 新增一个跨越 src_block 的双向指针
+        src_block.last_blocks[0].next_blocks.append(src_block.next_blocks[0])
+        src_block.next_blocks[0].last_blocks.append(src_block.last_blocks[0])
+        to_update_blocks.append(src_block.next_blocks[0])
+
+        # 删除 src_block 的上下四指针
+        self.remove_blocks(src_block.last_blocks[0].next_blocks, src_block)
+        self.remove_blocks(src_block.last_blocks, src_block.last_blocks[0])
+        self.remove_blocks(src_block.next_blocks[0].last_blocks, src_block)
+        self.remove_blocks(src_block.next_blocks, src_block.next_blocks[0])
+
+        blocks_of_to_col = [self.dag_root] + to_col_blocks + [self.dag_leaf]
+
+        # 将 src_block 插入到目标列，更新指针
+        add_start_block = blocks_of_to_col[actual_insert_pos + 1]
+        add_end_block = blocks_of_to_col[actual_insert_pos + 2]
+
+        # 先断开跨越指针
+        self.remove_blocks(add_start_block.next_blocks, add_end_block)
+        self.remove_blocks(add_end_block.last_blocks, add_start_block)
+
+        # 连上中间指针
+        add_start_block.next_blocks.append(src_block)
+        src_block.last_blocks.append(add_start_block)
+        src_block.next_blocks.append(add_end_block)
+        add_end_block.last_blocks.append(src_block)
+
+        to_update_blocks.append(src_block)
+
+        for i in to_update_blocks:
+            self.update_depth(i)
+
+    def update_depth(self, block: QRMoveDAGBlock):
+        # 更新块、块内节点及之后所级联的深度
         
-        
+        pass
+
+    def remove_blocks(
+        self, total_blocks: list[QRMoveDAGBlock], remove_block: QRMoveDAGBlock
+    ):
+        idx = -1
+        for i in range(len(total_blocks)):
+            b = total_blocks[i]
+            if b.logic_qid == remove_block.logic_qid:
+                idx = i
+        total_blocks.pop(idx)
 
     def get_circuit_depth(self):
         # 获取当前电路的最大深度
@@ -189,6 +261,8 @@ class QRMoveDAG:
                         _node.logic_qid_b = _logic_qubit_id
                         block.nodes.append(_node)
 
+            block.end_depth += self.mrp_time
+
             # nodes = block.nodes
             for node_idx in range(len(nodes) - 1):
                 # 获取两个节点
@@ -197,8 +271,8 @@ class QRMoveDAG:
                 node_b.last_nodes.append(node_a)
         leaf_last_blocks = self.dag_leaf.last_blocks
         max_depth = max([block.end_depth for block in leaf_last_blocks])
-        self.dag_leaf.start_depth = max_depth + self.mrp_time
-        self.dag_leaf.end_depth = max_depth + self.mrp_time
+        self.dag_leaf.start_depth = max_depth
+        self.dag_leaf.end_depth = max_depth
 
 
 class QRMoveMatrixElement:
