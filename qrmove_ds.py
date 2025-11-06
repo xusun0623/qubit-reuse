@@ -28,6 +28,7 @@ class QRMoveDAGBlock:
         self.start_depth = 0
         self.end_depth = 0
         self.column_id: int = None
+        self.logic_qid: int = None
         self.nodes: list[QRMoveDAGNode] = []
         # 下一个块
         self.next_blocks: list[QRMoveDAGBlock] = []
@@ -44,19 +45,86 @@ class QRMoveDAG:
         self.matrix_column: list[QRMoveDAGBlock] = []
         self.build_dag()
 
-    def try_pull_block(self, from_col_idx, logic_qid, to_col_idx):
+    def get_block_by_lqid(self, logic_qid, col_idx: int = None) -> QRMoveDAGBlock:
+        if col_idx == None:
+            raise Exception("请指定列索引")
         matrix_column = self.matrix_column
-        col_start = matrix_column[from_col_idx]
-        if len(col_start.next_blocks) == 0:
+        block_pointer: QRMoveDAGBlock = matrix_column[col_idx]
+        if len(block_pointer.next_blocks) == 0:
             print("要拉取的块不在")
             return False
-        col_start_block = col_start.next_blocks[0]
-        src_block = None
-        for block in col_start_block.next_blocks:
-            if block.column_id == from_col_idx:
-                src_block = block
+        while logic_qid != block_pointer.logic_qid:
+            block_pointer = block_pointer.next_blocks[0]
+        # 定位要拉取的目标块
+        return block_pointer
+
+    def get_blocks_by_column_id(self, column_id) -> list[QRMoveDAGBlock]:
+        # 根据Column_id获取所有块
+        blocks = []
+        matrix_column = self.matrix_column
+        block_pointer: QRMoveDAGBlock = matrix_column[col_idx]
+        if len(block_pointer.next_blocks) == 0:
+            print("所在的列没有块")
+            return blocks
+        while len(block_pointer.next_blocks) != 0:
+            block_pointer = block_pointer.next_blocks[0]
+            blocks.append(block_pointer)
+        return blocks
+
+    def can_be_pulled(self, from_col_idx, logic_qid, to_col_idx):
+        # 是否可以将一个块拉到目标列
+        to_pull_block: QRMoveDAGBlock = self.get_block_by_lqid(logic_qid, from_col_idx)
+        to_col_gate_ids = []  # 目标列的所有 gate_id
+
+        to_column_blocks: list[QRMoveDAGBlock] = self.get_blocks_by_column_id(
+            to_col_idx
+        )
+        for block in to_column_blocks:
+            for node in block.nodes:
+                # 获取目标列的所有 gate_id
+                to_col_gate_ids.append(node.gate_id)
+
+        for node in to_pull_block.nodes:
+            node_gate_id = node.gate_id
+            # 如果有门ID在目标列中，则返回False
+            if node_gate_id in to_col_gate_ids:
+                return False
+
+        return True
+
+    def try_pull_block(self, from_col_idx, logic_qid, to_col_idx):
+        # 定位要拉取的目标块
+        src_block = self.get_block_by_lqid(logic_qid, from_col_idx)
+
+        def near_col(col_idx):
+            # 获取 col_idx 列的附近的列
+            col_num = self.matrix.shape[1]
+            near_col_idx = []
+            near_col_idx.append(col_idx)
+            for i in range(1, col_num):
+                if col_idx - i >= 0:
+                    near_col_idx.append(col_idx - i)
+                if col_idx + i < col_num:
+                    near_col_idx.append(col_idx + i)
+            return near_col_idx
+
+        pulled = False
+        actual_pull_col = None  # 实际拉到的列
+        for i in near_col(to_col_idx):
+            can_pull = self.can_be_pulled(from_col_idx, logic_qid, i)
+            if can_pull:
+                actual_pull_col = i
                 break
-        pass
+        
+        # 拉取 block 块到目标列
+        confirm_pull(from_col_idx, logic_qid, actual_pull_col)
+    
+    def confirm_pull(self, from_col_idx, logic_qid, to_col_idx):
+        '''确认拉取'''
+        to_col_blocks = self.get_blocks_by_column_id(to_col_idx)
+        # 通过 目标块 / 双块 来计算覆盖率，从而确定拉取到的目标块槽
+        
+        
 
     def get_circuit_depth(self):
         # 获取当前电路的最大深度
@@ -99,6 +167,8 @@ class QRMoveDAG:
                 # 获取对应的行
                 _gate_id = matrix[i, j].gate_id
                 _logic_qubit_id = matrix[i, j].logic_qubit_id
+                if block.logic_qid == None:
+                    block.logic_qid = _logic_qubit_id
                 if _gate_id != 0:
                     # 块的深度
                     if i - 1 < 0 or matrix[i - 1, j].gate_id == 0:
@@ -166,7 +236,7 @@ class QRMoveMatrix:
         # from_col_idx: 源列索引，to_col_idx: 目标列索引，logic_qid: 逻辑量子比特ID
         # 需要多次尝试，直到拉到最近的量子比特为止
         circuit_dag = self.circuit_dag
-        circuit_dag.try_pull_block(from_col_idx, logic_qid, to_col_idx)
+        return circuit_dag.try_pull_block(from_col_idx, logic_qid, to_col_idx)
 
     def get_column_gate_ids(self, col_idx):
         # 获取某个列的CNOT门ID列表
@@ -191,19 +261,18 @@ class QRMoveMatrix:
 
     def get_pivot_idx(self) -> int:
         # 获取矩阵的枢轴
-        matrix = self.matrix
-        x, y = matrix.shape
+        circuit_dag = self.circuit_dag
+        col_num = len(circuit_dag.matrix_column)
         pivot_idx = -1
         pivot_gate_sum = 0
-        for j in range(y):
+        for col_idx in range(col_num):
             count = 0
-            for i in range(x):
-                if matrix[i, j].gate_id != 0:
-                    count += 1
+            blocks = circuit_dag.get_blocks_by_column_id(col_idx)
+            for block in blocks:
+                count += len(block.nodes)
             if count > pivot_gate_sum:
                 pivot_gate_sum = count
-                pivot_idx = j
-        # 返回枢轴的idx
+                pivot_idx = col_idx
         return pivot_idx
 
     def construct_dag(self):
