@@ -41,7 +41,22 @@ class QRMoveDAG:
         self.matrix: np.ndarray = matrix
         self.dag_root: QRMoveDAGBlock = QRMoveDAGBlock()
         self.dag_leaf: QRMoveDAGBlock = QRMoveDAGBlock()
+        self.matrix_column: list[QRMoveDAGBlock] = []
         self.build_dag()
+
+    def try_pull_block(self, from_col_idx, logic_qid, to_col_idx):
+        matrix_column = self.matrix_column
+        col_start = matrix_column[from_col_idx]
+        if len(col_start.next_blocks) == 0:
+            print("要拉取的块不在")
+            return False
+        col_start_block = col_start.next_blocks[0]
+        src_block = None
+        for block in col_start_block.next_blocks:
+            if block.column_id == from_col_idx:
+                src_block = block
+                break
+        pass
 
     def get_circuit_depth(self):
         # 获取当前电路的最大深度
@@ -63,11 +78,14 @@ class QRMoveDAG:
         dag_root.depth = 0
 
         row_num, col_num = matrix.shape
+        self.matrix_column = [QRMoveDAGBlock() for _ in range(col_num)]
+
         for j in range(col_num):
             # 获取某个列
             if self.is_col_empty(j):
                 continue
             block: QRMoveDAGBlock = QRMoveDAGBlock()
+            self.matrix_column[j].next_blocks.append(block)
             block.column_id = j
 
             # 双向链表
@@ -101,7 +119,7 @@ class QRMoveDAG:
                         _node.logic_qid_b = _logic_qubit_id
                         block.nodes.append(_node)
 
-            nodes = block.nodes
+            # nodes = block.nodes
             for node_idx in range(len(nodes) - 1):
                 # 获取两个节点
                 node_a, node_b = nodes[node_idx], nodes[node_idx + 1]
@@ -140,15 +158,15 @@ class QRMoveMatrix:
         self.quantum_chip: QuantumChip = quantum_chip
         self.hardware_params = hardware_params
         self.matrix: np.ndarray = None
+        self.circuit_dag: QRMoveDAG = None
         self.extract_matrix()
         self.construct_dag()
-        pass
 
     def try_pull_block(self, from_col_idx, logic_qid, to_col_idx):
         # from_col_idx: 源列索引，to_col_idx: 目标列索引，logic_qid: 逻辑量子比特ID
         # 需要多次尝试，直到拉到最近的量子比特为止
-
-        pass
+        circuit_dag = self.circuit_dag
+        circuit_dag.try_pull_block(from_col_idx, logic_qid, to_col_idx)
 
     def get_column_gate_ids(self, col_idx):
         # 获取某个列的CNOT门ID列表
