@@ -150,6 +150,28 @@ class QRMoveDAG:
         if actual_insert_pos == None:
             actual_insert_pos = len(to_col_blocks) - 1
 
+        actual_pulled_pos = -1
+        all_blocks_of_pulled_column = self.get_blocks_by_column_id(from_col_idx)
+        for idx, item in enumerate(all_blocks_of_pulled_column):
+            if item.logic_qid == logic_qid:
+                actual_pulled_pos = idx
+                break
+
+        if actual_pulled_pos == 0:
+            # 被拉取的块，在头指针后面一个，需要断掉源列的头指针
+            self.matrix_column[from_col_idx].next_blocks = []
+
+        if actual_insert_pos == -1:
+            # 被拉取块的目的位置，在头指针后面一个，需要更新目标列的头指针
+            self.matrix_column[to_col_idx].next_blocks = [src_block]
+
+        # 拉取的参数：
+        #   from_col_idx - 被拉取的列index
+        #   to_col_idx - 拉取到的列index
+        #   src_block - 被拉取的块
+        #   logic_qid - 逻辑比特ID（暂时未用）
+        #   actual_insert_pos - 实际插入的位置
+
         # 完成 Move 之后，需要更新 depth 的块
         to_update_blocks: list[QRMoveDAGBlock] = []
 
@@ -199,9 +221,10 @@ class QRMoveDAG:
             if current_block in visited:
                 continue
             visited.add(current_block)
-            # 取出上一个节点
-            last_block = current_block.last_blocks[0]
-            last_block_end_depth = last_block.end_depth
+            # 取出上一个节点的最大深度
+            last_block_end_depth = 0
+            for last_block in current_block.last_blocks:
+                last_block_end_depth = max(last_block.end_depth, last_block_end_depth)
             if last_block_end_depth > current_block.start_depth:
                 # 更新块的上界
                 current_block.start_depth = last_block_end_depth
