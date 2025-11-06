@@ -13,7 +13,9 @@ class QRMoveDAGNode:
         self.depth = 0
         self.gate_id: int = None
         self.logic_qid_a: int = None
+        self.belong_block_a: QRMoveDAGBlock = None
         self.logic_qid_b: int = None
+        self.belong_block_b: QRMoveDAGBlock = None
         # 指向下一个节点
         self.next_nodes: list[QRMoveDAGNode] = []
         self.last_nodes: list[QRMoveDAGNode] = []
@@ -185,8 +187,44 @@ class QRMoveDAG:
 
     def update_depth(self, block: QRMoveDAGBlock):
         # 更新块、块内节点及之后所级联的深度
-        
-        pass
+        from collections import deque
+
+        # 使用队列来进行bfs
+        queue = deque([block])
+        visited = set()
+
+        while queue:
+            # ⭐️ 取出一个Block
+            current_block = queue.popleft()
+            if current_block in visited:
+                continue
+            visited.add(current_block)
+            # 取出上一个节点
+            last_block = current_block.last_blocks[0]
+            last_block_end_depth = last_block.end_depth
+            if last_block_end_depth > current_block.start_depth:
+                # 更新块的上界
+                current_block.start_depth = last_block_end_depth
+                nodes_in_block = current_block.nodes
+                current_node_depth = current_block.start_depth
+                for node_idx, node_item in enumerate(nodes_in_block):
+                    current_node_depth += 1
+                    if node_item.depth < current_node_depth:
+                        other_block = (
+                            node_item.belong_block_a
+                            if node_item.logic_qid_b == current_block.logic_qid
+                            else node_item.belong_block_b
+                        )
+                        # 将关联的另一个block添加进队列里
+                        queue.append(other_block)
+                        node_item.depth = current_node_depth
+                    else:
+                        current_node_depth = node_item.depth
+                if current_node_depth + self.mrp_time > current_block.end_depth:
+                    current_block.end_depth = current_node_depth + self.mrp_time
+                if current_block.end_depth > current_block.next_blocks[0].start_depth:
+                    current_block.next_blocks[0].start_depth = current_block.end_depth
+                    queue.append(current_block.next_blocks[0])
 
     def remove_blocks(
         self, total_blocks: list[QRMoveDAGBlock], remove_block: QRMoveDAGBlock
@@ -253,12 +291,14 @@ class QRMoveDAG:
                         _node.depth = i + 1  # 赋予节点深度
                         _node.gate_id = _gate_id
                         _node.logic_qid_a = _logic_qubit_id
+                        _node.belong_block_a = block
                         block.nodes.append(_node)
                         added_node[_gate_id] = _node
                     else:
                         # 添加过
                         _node = added_node[_gate_id]
                         _node.logic_qid_b = _logic_qubit_id
+                        _node.belong_block_b = block
                         block.nodes.append(_node)
 
             block.end_depth += self.mrp_time
