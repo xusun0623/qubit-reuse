@@ -62,36 +62,38 @@ class QRMoveCompiler:
             return near_col_idx
 
         while True:
+            col_num = len(matrix.circuit_dag.matrix_column)
             row_num, col_num = matrix.matrix.shape
             pulled_logic_qid = []
-            for i in range(row_num):
-                # 先拉取带 gate_id 的列
-                gid = matrix.matrix[i, pivot_idx].gate_id
-                if gid != 0:
-                    for j in near_col(pivot_idx):
-                        ij_gid = matrix.matrix[i, j].gate_id
-                        ij_logic_id = matrix.matrix[i, j].logic_qubit_id
-                        if (
-                            ij_gid != 0
-                            and ij_logic_id != -1
-                            and gid == ij_gid
-                            and j != pivot_idx
-                            and (ij_logic_id not in pulled_logic_qid)
-                        ):
-                            pulled_logic_qid.append(ij_logic_id)
-                            matrix.try_pull_block(j, ij_logic_id, pivot_idx)
 
-            # 再拉取不带 gate_id 的列
+            # 先拉取枢轴上自带 gate_id 的相应的另一列
+            for block in matrix.circuit_dag.get_blocks_by_column_id(pivot_idx):
+                for node in block.nodes:
+                    other_block = (
+                        node.belong_block_b
+                        if node.belong_block_a.column_id == pivot_idx
+                        else node.belong_block_a
+                    )
+                    matrix.try_pull_block(
+                        other_block.column_id,
+                        other_block.logic_qid,
+                        pivot_idx,
+                        other_block,
+                    )
+                    pulled_logic_qid.append(other_block.logic_qid)
+
+            # 再拉取不带相同 gate_id 的列
             for j in near_col(pivot_idx):
-                for i in range(row_num):
-                    ij_logic_id = matrix.matrix[i, j].logic_qubit_id
-                    if ij_logic_id == -1:
-                        continue
-                    if ij_logic_id not in pulled_logic_qid:
-                        pulled_logic_qid.append(ij_logic_id)
-                        matrix.try_pull_block(j, ij_logic_id, pivot_idx)
+                blocks = matrix.circuit_dag.get_blocks_by_column_id(j)
+                for block in blocks:
+                    if block.logic_qid not in pulled_logic_qid:
+                        matrix.try_pull_block(
+                            block.column_id, block.logic_qid, pivot_idx, block
+                        )
 
             # 重新计算枢轴
             tmp_pivot = matrix.get_pivot_idx()
             if tmp_pivot == pivot_idx:
                 break
+        
+        matrix.visual_dag()

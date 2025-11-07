@@ -1,0 +1,42 @@
+// QRMove DAG
+digraph {
+	rankdir=TB
+	node [shape=box]
+	root_0 [label=Root fillcolor=lightblue style=filled]
+	block_1 [label="Block
+Col:0
+QID:0
+Depth:[1,21]"]
+	block_2 [label="Block
+Col:1
+QID:1
+Depth:[1,18]"]
+	block_3 [label="Block
+Col:1
+QID:7
+Depth:[18,36]"]
+	block_4 [label="Block
+Col:1
+QID:6
+Depth:[36,36]"]
+	block_5 [label="Block
+Col:1
+QID:3
+Depth:[36,36]"]
+	leaf_6 [label=Leaf fillcolor=lightgreen style=filled]
+	root_0 -> block_1
+	root_0 -> block_2
+	root_0 -> leaf_6
+	root_0 -> leaf_6
+	root_0 -> leaf_6
+	block_1 -> leaf_6
+	block_2 -> block_3
+	block_3 -> block_4
+	block_4 -> block_5
+	block_5 -> leaf_6
+	block_1 -> leaf_6
+	root_0 -> leaf_6
+	block_5 -> leaf_6
+	root_0 -> leaf_6
+	root_0 -> leaf_6
+}

@@ -5,6 +5,9 @@ import math
 from hardware import HardwareParams
 from quantum_chip import QuantumChip
 import graphviz
+import networkx as nx
+import matplotlib.pyplot as plt
+from collections import deque
 
 
 class QRMoveDAGNode:
@@ -33,6 +36,7 @@ class QRMoveDAGBlock:
         self.column_id: int = None
         self.logic_qid: int = None
         self.nodes: list[QRMoveDAGNode] = []
+        self.tag = ""
         # 下一个块
         self.next_blocks: list[QRMoveDAGBlock] = []
         self.last_blocks: list[QRMoveDAGBlock] = []
@@ -44,64 +48,45 @@ class QRMoveDAG:
         self.mrp_time = mrp_time
         self.matrix: np.ndarray = matrix
         self.dag_root: QRMoveDAGBlock = QRMoveDAGBlock()
+        self.dag_root.tag = "root"
         self.dag_leaf: QRMoveDAGBlock = QRMoveDAGBlock()
+        self.dag_leaf.tag = "leaf"
         self.matrix_column: list[QRMoveDAGBlock] = []
         self.build_dag()
 
     def visualize_dag(self):
-
-        dot = graphviz.Digraph(comment="QRMove DAG")
-        dot.attr(rankdir="TB")  # 从左到右布局
-
-        # 收集所有块
-        blocks = []
-
-        def collect_blocks(block):
-            if block not in blocks:
-                blocks.append(block)
-                for next_block in block.next_blocks:
-                    collect_blocks(next_block)
-
-        collect_blocks(self.dag_root)
-
-        # 创建节点
-        for i, block in enumerate(blocks):
-            if block == self.dag_root:
-                dot.node(
-                    "root",
-                    "Root",
-                    shape="ellipse",
-                    style="filled",
-                    fillcolor="lightblue",
-                )
-            elif block == self.dag_leaf:
-                dot.node(
-                    "leaf",
-                    "Leaf",
-                    shape="ellipse",
-                    style="filled",
-                    fillcolor="lightblue",
-                )
-            else:
-                label = f"Block\nCol:{block.column_id}\nQID:{block.logic_qid}\nDepth:{block.start_depth}-{block.end_depth}"
-                dot.node(f"block_{id(block)}", label, shape="box")
-
-        # 创建边
-        for block in blocks:
-            for next_block in block.next_blocks:
-                if block == self.dag_root:
-                    from_node = "root"
-                else:
-                    from_node = f"block_{id(block)}"
-
-                if next_block == self.dag_leaf:
-                    to_node = "leaf"
-                else:
-                    to_node = f"block_{id(next_block)}"
-
-                dot.edge(from_node, to_node)
-
-        return dot
+        G = nx.DiGraph()  # 创建一个有向无环图(DAG)
+        queue = deque([self.dag_root])  # 使用队列来进行bfs
+        visited = set()
+        while queue:
+            # ⭐️ 取出一个Block
+            current_block = queue.popleft()
+            if current_block in visited:
+                continue
+            visited.add(current_block)
+            for next_block in current_block.next_blocks:
+                c_qid = current_block.logic_qid
+                n_qid = next_block.logic_qid
+                G.add_edge(c_qid if c_qid else "root", n_qid if n_qid else "leaf")
+                queue.append(next_block)
+        plt.figure(figsize=(10, 12))
+        pos = nx.drawing.nx_agraph.graphviz_layout(G, prog="dot", args="-Grankdir=TB")
+        nx.draw_networkx_nodes(
+            G,
+            pos,
+            node_size=800,
+            node_color="lightblue",
+            edgecolors="black",
+            linewidths=1,
+        )
+        nx.draw_networkx_edges(
+            G, pos, arrowstyle="->", arrowsize=20, edge_color="gray", width=1.5
+        )
+        nx.draw_networkx_labels(G, pos, font_size=14, font_weight="bold")
+        plt.title("Circuit DAG", fontsize=16, pad=20)
+        plt.axis("off")  # 关闭坐标轴
+        plt.tight_layout()
+        plt.show()
 
     def get_block_by_lqid(self, logic_qid, col_idx: int = None) -> QRMoveDAGBlock:
         # 应该非常鲁棒才对，不应该有拉取的块不在、列是空的，这种逻辑错误
@@ -132,6 +117,7 @@ class QRMoveDAG:
         return blocks
 
     def can_be_pulled(self, from_col_idx, logic_qid, to_col_idx, src_block):
+        """源列idx, 源块qid, 目标列idx, 源块"""
         # 是否可以将一个块拉到目标列
         to_col_gate_ids = []  # 目标列的所有 gate_id
 
@@ -151,12 +137,11 @@ class QRMoveDAG:
 
         return True
 
-    def try_pull_block(self, from_col_idx, logic_qid, to_col_idx):
+    def try_pull_block(self, from_col_idx, logic_qid, to_col_idx, src_block):
         # 定位要拉取的目标块
-        src_block = self.get_block_by_lqid(logic_qid, from_col_idx)
-
-        if src_block == False:
-            return False
+        # src_block = self.get_block_by_lqid(logic_qid, from_col_idx)
+        # if src_block == False:
+        #     return False
 
         def near_col(col_idx):
             # 获取 col_idx 列的附近的列
@@ -228,6 +213,14 @@ class QRMoveDAG:
             # 被拉取的块，在头指针后面一个，需要断掉源列的头指针
             self.matrix_column[from_col_idx].next_blocks = []
 
+        # if src_block.last_blocks[0].tag == "root":
+        #     self.remove_blocks(self.dag_root, src_block)
+        #     self.remove_blocks(src_block.last_blocks, self.dag_root)
+
+        # if src_block.next_blocks[0].tag == "leaf":
+        #     self.remove_blocks(src_block.next_blocks, self.dag_leaf)
+        #     self.remove_blocks(self.dag_leaf.last_blocks, src_block)
+
         if actual_insert_pos == -1:
             # 被拉取块的目的位置，在头指针后面一个，需要更新目标列的头指针
             self.matrix_column[to_col_idx].next_blocks = [src_block]
@@ -241,10 +234,12 @@ class QRMoveDAG:
 
         # 完成 Move 之后，需要更新 depth 的块
         to_update_blocks: list[QRMoveDAGBlock] = []
-
+        
         # 新增一个跨越 src_block 的双向指针
-        src_block.last_blocks[0].next_blocks.append(src_block.next_blocks[0])
-        src_block.next_blocks[0].last_blocks.append(src_block.last_blocks[0])
+        if not (src_block.last_blocks[0].tag == "root" and src_block.next_blocks[0].tag == "leaf"):
+            src_block.last_blocks[0].next_blocks.append(src_block.next_blocks[0])
+            src_block.next_blocks[0].last_blocks.append(src_block.last_blocks[0])
+        
         to_update_blocks.append(src_block.next_blocks[0])
 
         # 删除 src_block 的上下四指针
@@ -270,13 +265,15 @@ class QRMoveDAG:
         add_end_block.last_blocks.append(src_block)
 
         to_update_blocks.append(src_block)
+        src_block.column_id = src_block.last_blocks[0].column_id
+        
+        # self.remove_blocks(self.dag_root.next_blocks, self.dag_leaf)
 
         for i in to_update_blocks:
             self.update_depth(i)
 
     def update_depth(self, block: QRMoveDAGBlock):
         # 更新块、块内节点及之后所级联的深度
-        from collections import deque
 
         # 使用队列来进行bfs
         queue = deque([block])
@@ -437,11 +434,13 @@ class QRMoveMatrix:
         self.extract_matrix()
         self.construct_dag()
 
-    def try_pull_block(self, from_col_idx, logic_qid, to_col_idx):
-        # from_col_idx: 源列索引，to_col_idx: 目标列索引，logic_qid: 逻辑量子比特ID
+    def try_pull_block(self, from_col_idx, logic_qid, to_col_idx, src_block):
+        """from_col_idx: 源列索引，logic_qid: 逻辑量子比特ID，to_col_idx: 目标列索引，src_block: 源块"""
         # 需要多次尝试，直到拉到最近的量子比特为止
         circuit_dag = self.circuit_dag
-        return circuit_dag.try_pull_block(from_col_idx, logic_qid, to_col_idx)
+        return circuit_dag.try_pull_block(
+            from_col_idx, logic_qid, to_col_idx, src_block
+        )
 
     def get_column_gate_ids(self, col_idx):
         # 获取某个列的CNOT门ID列表
@@ -479,6 +478,9 @@ class QRMoveMatrix:
                 pivot_gate_sum = count
                 pivot_idx = col_idx
         return pivot_idx
+
+    def visual_dag(self):
+        self.circuit_dag.visualize_dag()
 
     def construct_dag(self):
         # 将现有的矩阵表示转化为双重DAG表示，方便计算

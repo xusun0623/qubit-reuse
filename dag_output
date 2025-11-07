@@ -1,0 +1,73 @@
+// QRMove DAG
+digraph {
+	rankdir=TB
+	node [fillcolor=lightblue shape=ellipse style=filled]
+	root [label=Root]
+	leaf [label=Leaf]
+	block_140091731819392 [label="Block
+Col:0
+QID:0
+Depth:1-21" fillcolor=white shape=box style=filled]
+	block_140091731819440 [label="Block
+Col:1
+QID:1
+Depth:1-18" fillcolor=white shape=box style=filled]
+	block_140091731819776 [label="Block
+Col:1
+QID:7
+Depth:18-36" fillcolor=white shape=box style=filled]
+	block_140091731819728 [label="Block
+Col:1
+QID:6
+Depth:36-36" fillcolor=white shape=box style=filled]
+	block_140091731819632 [label="Block
+Col:1
+QID:3
+Depth:36-36" fillcolor=white shape=box style=filled]
+	root -> block_140091731819392
+	root -> block_140091731819440
+	root -> leaf
+	root -> leaf
+	root -> leaf
+	block_140091731819392 -> leaf
+	block_140091731819440 -> block_140091731819776
+	block_140091731819776 -> block_140091731819728
+	block_140091731819728 -> block_140091731819632
+	block_140091731819632 -> leaf
+	{
+		rank=same
+		block_140091731819392
+		gate_1_0 [fillcolor=lightgray shape=circle style=filled]
+		block_140091731819392 -> gate_1_0 [dir=back]
+		gate_2_1 [fillcolor=lightgray shape=circle style=filled]
+		block_140091731819392 -> gate_2_1 [dir=back]
+		gate_3_2 [fillcolor=lightgray shape=circle style=filled]
+		block_140091731819392 -> gate_3_2 [dir=back]
+		gate_4_3 [fillcolor=lightgray shape=circle style=filled]
+		block_140091731819392 -> gate_4_3 [dir=back]
+	}
+	{
+		rank=same
+		block_140091731819440
+		gate_1_0 [fillcolor=lightgray shape=circle style=filled]
+		block_140091731819440 -> gate_1_0 [dir=back]
+	}
+	{
+		rank=same
+		block_140091731819776
+		gate_4_0 [fillcolor=lightgray shape=circle style=filled]
+		block_140091731819776 -> gate_4_0 [dir=back]
+	}
+	{
+		rank=same
+		block_140091731819728
+		gate_3_0 [fillcolor=lightgray shape=circle style=filled]
+		block_140091731819728 -> gate_3_0 [dir=back]
+	}
+	{
+		rank=same
+		block_140091731819632
+		gate_2_0 [fillcolor=lightgray shape=circle style=filled]
+		block_140091731819632 -> gate_2_0 [dir=back]
+	}
+}
