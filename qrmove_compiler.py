@@ -52,7 +52,7 @@ class QRMoveCompiler:
 
         def near_col(col_idx):
             # 获取 col_idx 列的相邻列
-            col_num = matrix.matrix.shape[1]
+            col_num = len(matrix.circuit_dag.matrix_column)
             near_col_idx = []
             for i in range(1, col_num):
                 if col_idx - i >= 0:
@@ -73,6 +73,7 @@ class QRMoveCompiler:
                         ij_logic_id = matrix.matrix[i, j].logic_qubit_id
                         if (
                             ij_gid != 0
+                            and ij_logic_id != -1
                             and gid == ij_gid
                             and j != pivot_idx
                             and (ij_logic_id not in pulled_logic_qid)
@@ -84,10 +85,12 @@ class QRMoveCompiler:
             for j in near_col(pivot_idx):
                 for i in range(row_num):
                     ij_logic_id = matrix.matrix[i, j].logic_qubit_id
+                    if ij_logic_id == -1:
+                        continue
                     if ij_logic_id not in pulled_logic_qid:
                         pulled_logic_qid.append(ij_logic_id)
                         matrix.try_pull_block(j, ij_logic_id, pivot_idx)
-            
+
             # 重新计算枢轴
             tmp_pivot = matrix.get_pivot_idx()
             if tmp_pivot == pivot_idx:

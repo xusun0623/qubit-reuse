@@ -104,18 +104,14 @@ class QRMoveDAG:
         return dot
 
     def get_block_by_lqid(self, logic_qid, col_idx: int = None) -> QRMoveDAGBlock:
-        if col_idx == None:
-            raise Exception("请指定列索引")
+        # 应该非常鲁棒才对，不应该有拉取的块不在、列是空的，这种逻辑错误
         matrix_column = self.matrix_column
         block_pointer: QRMoveDAGBlock = matrix_column[col_idx]
-        if len(block_pointer.next_blocks) == 0:
-            print("要拉取的块不在")
-            return False
         while logic_qid != block_pointer.logic_qid:
-            if len(block_pointer.next_blocks) == 0:
-                print("所在的列没有块")
-                return False
             block_pointer = block_pointer.next_blocks[0]
+        if block_pointer.logic_qid != logic_qid:
+            print("查找失败，需要严密地检查代码逻辑")
+            return False
         # 定位要拉取的目标块
         return block_pointer
 
@@ -123,13 +119,10 @@ class QRMoveDAG:
         # 根据Column_id获取所有块
         blocks = []
         matrix_column = self.matrix_column
-        if matrix_column == None:
-            print("请先调用 extract_matrix()")
-            return blocks
         block_pointer: QRMoveDAGBlock = matrix_column[column_id]
         if len(block_pointer.next_blocks) == 0:
-            print("所在的列没有块")
-            return blocks
+            # print("所在的列没有块")
+            return []
         while (
             len(block_pointer.next_blocks) != 0
             and block_pointer.next_blocks[0].logic_qid != None
@@ -138,12 +131,8 @@ class QRMoveDAG:
             blocks.append(block_pointer)
         return blocks
 
-    def can_be_pulled(self, from_col_idx, logic_qid, to_col_idx):
+    def can_be_pulled(self, from_col_idx, logic_qid, to_col_idx, src_block):
         # 是否可以将一个块拉到目标列
-        to_pull_block: QRMoveDAGBlock = self.get_block_by_lqid(logic_qid, from_col_idx)
-        if to_pull_block == False:
-            print("要拉取的块不在")
-            return False
         to_col_gate_ids = []  # 目标列的所有 gate_id
 
         to_column_blocks: list[QRMoveDAGBlock] = self.get_blocks_by_column_id(
@@ -154,7 +143,7 @@ class QRMoveDAG:
                 # 获取目标列的所有 gate_id
                 to_col_gate_ids.append(node.gate_id)
 
-        for node in to_pull_block.nodes:
+        for node in src_block.nodes:
             node_gate_id = node.gate_id
             # 如果有门ID在目标列中，则返回False
             if node_gate_id in to_col_gate_ids:
@@ -165,6 +154,9 @@ class QRMoveDAG:
     def try_pull_block(self, from_col_idx, logic_qid, to_col_idx):
         # 定位要拉取的目标块
         src_block = self.get_block_by_lqid(logic_qid, from_col_idx)
+
+        if src_block == False:
+            return False
 
         def near_col(col_idx):
             # 获取 col_idx 列的附近的列
@@ -181,20 +173,24 @@ class QRMoveDAG:
         pulled = False
         actual_pull_col = None  # 实际拉到的列
         for i in near_col(to_col_idx):
-            can_pull = self.can_be_pulled(from_col_idx, logic_qid, i)
+            # 拉远了可不行
+            if abs(i - to_col_idx) > abs(to_col_idx - from_col_idx):
+                continue
+            if i == from_col_idx:
+                continue
+            can_pull = self.can_be_pulled(from_col_idx, logic_qid, i, src_block)
             if can_pull:
+                pulled = True
                 actual_pull_col = i
                 break
 
         # 拉取 block 块到目标列
-        self.confirm_pull(from_col_idx, logic_qid, actual_pull_col, src_block)
+        if pulled:
+            self.confirm_pull(from_col_idx, logic_qid, actual_pull_col, src_block)
 
     def confirm_pull(
         self, from_col_idx, logic_qid, to_col_idx, src_block: QRMoveDAGBlock
     ):
-        if(to_col_idx == None):
-            print("请指定列索引")
-            return
         """确认拉取"""
         to_col_blocks = self.get_blocks_by_column_id(to_col_idx)
         # 实际插入的位置
@@ -208,7 +204,7 @@ class QRMoveDAG:
         ):
             actual_insert_pos = -1
         if actual_insert_pos == None:
-            for i in range(0, range(len(to_col_blocks) - 1)):
+            for i in range(0, len(to_col_blocks) - 1):
                 depth_range = [
                     to_col_blocks[i].start_depth,
                     to_col_blocks[i + 1].start_depth,
@@ -371,7 +367,7 @@ class QRMoveDAG:
                 # 获取对应的行
                 _gate_id = matrix[i, j].gate_id
                 _logic_qubit_id = matrix[i, j].logic_qubit_id
-                if block.logic_qid == None:
+                if block.logic_qid == None and _logic_qubit_id != -1:
                     block.logic_qid = _logic_qubit_id
                 if _gate_id != 0:
                     # 块的深度
