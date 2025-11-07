@@ -73,8 +73,9 @@ class QRMoveCompiler:
                         ij_logic_id = matrix.matrix[i, j].logic_qubit_id
                         if (
                             ij_gid != 0
+                            and gid == ij_gid
                             and j != pivot_idx
-                            and (j_logic_id not in pulled_logic_qid)
+                            and (ij_logic_id not in pulled_logic_qid)
                         ):
                             pulled_logic_qid.append(ij_logic_id)
                             matrix.try_pull_block(j, ij_logic_id, pivot_idx)

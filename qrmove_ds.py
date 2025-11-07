@@ -4,6 +4,7 @@ from qiskit import QuantumCircuit
 import math
 from hardware import HardwareParams
 from quantum_chip import QuantumChip
+import graphviz
 
 
 class QRMoveDAGNode:
@@ -47,6 +48,61 @@ class QRMoveDAG:
         self.matrix_column: list[QRMoveDAGBlock] = []
         self.build_dag()
 
+    def visualize_dag(self):
+
+        dot = graphviz.Digraph(comment="QRMove DAG")
+        dot.attr(rankdir="TB")  # 从左到右布局
+
+        # 收集所有块
+        blocks = []
+
+        def collect_blocks(block):
+            if block not in blocks:
+                blocks.append(block)
+                for next_block in block.next_blocks:
+                    collect_blocks(next_block)
+
+        collect_blocks(self.dag_root)
+
+        # 创建节点
+        for i, block in enumerate(blocks):
+            if block == self.dag_root:
+                dot.node(
+                    "root",
+                    "Root",
+                    shape="ellipse",
+                    style="filled",
+                    fillcolor="lightblue",
+                )
+            elif block == self.dag_leaf:
+                dot.node(
+                    "leaf",
+                    "Leaf",
+                    shape="ellipse",
+                    style="filled",
+                    fillcolor="lightblue",
+                )
+            else:
+                label = f"Block\nCol:{block.column_id}\nQID:{block.logic_qid}\nDepth:{block.start_depth}-{block.end_depth}"
+                dot.node(f"block_{id(block)}", label, shape="box")
+
+        # 创建边
+        for block in blocks:
+            for next_block in block.next_blocks:
+                if block == self.dag_root:
+                    from_node = "root"
+                else:
+                    from_node = f"block_{id(block)}"
+
+                if next_block == self.dag_leaf:
+                    to_node = "leaf"
+                else:
+                    to_node = f"block_{id(next_block)}"
+
+                dot.edge(from_node, to_node)
+
+        return dot
+
     def get_block_by_lqid(self, logic_qid, col_idx: int = None) -> QRMoveDAGBlock:
         if col_idx == None:
             raise Exception("请指定列索引")
@@ -56,6 +112,9 @@ class QRMoveDAG:
             print("要拉取的块不在")
             return False
         while logic_qid != block_pointer.logic_qid:
+            if len(block_pointer.next_blocks) == 0:
+                print("所在的列没有块")
+                return False
             block_pointer = block_pointer.next_blocks[0]
         # 定位要拉取的目标块
         return block_pointer
@@ -64,7 +123,10 @@ class QRMoveDAG:
         # 根据Column_id获取所有块
         blocks = []
         matrix_column = self.matrix_column
-        block_pointer: QRMoveDAGBlock = matrix_column[col_idx]
+        if matrix_column == None:
+            print("请先调用 extract_matrix()")
+            return blocks
+        block_pointer: QRMoveDAGBlock = matrix_column[column_id]
         if len(block_pointer.next_blocks) == 0:
             print("所在的列没有块")
             return blocks
@@ -79,6 +141,9 @@ class QRMoveDAG:
     def can_be_pulled(self, from_col_idx, logic_qid, to_col_idx):
         # 是否可以将一个块拉到目标列
         to_pull_block: QRMoveDAGBlock = self.get_block_by_lqid(logic_qid, from_col_idx)
+        if to_pull_block == False:
+            print("要拉取的块不在")
+            return False
         to_col_gate_ids = []  # 目标列的所有 gate_id
 
         to_column_blocks: list[QRMoveDAGBlock] = self.get_blocks_by_column_id(
@@ -122,11 +187,14 @@ class QRMoveDAG:
                 break
 
         # 拉取 block 块到目标列
-        confirm_pull(from_col_idx, logic_qid, actual_pull_col, src_block)
+        self.confirm_pull(from_col_idx, logic_qid, actual_pull_col, src_block)
 
     def confirm_pull(
         self, from_col_idx, logic_qid, to_col_idx, src_block: QRMoveDAGBlock
     ):
+        if(to_col_idx == None):
+            print("请指定列索引")
+            return
         """确认拉取"""
         to_col_blocks = self.get_blocks_by_column_id(to_col_idx)
         # 实际插入的位置
@@ -134,7 +202,10 @@ class QRMoveDAG:
         src_block_middle_depth = (
             src_block.start_depth + src_block.end_depth
         ) / 2  # 居中的位置
-        if src_block_middle_depth <= to_col_blocks[0].start_depth:
+        if (
+            len(to_col_blocks) == 0
+            or src_block_middle_depth <= to_col_blocks[0].start_depth
+        ):
             actual_insert_pos = -1
         if actual_insert_pos == None:
             for i in range(0, range(len(to_col_blocks) - 1)):
@@ -326,12 +397,13 @@ class QRMoveDAG:
 
             block.end_depth += self.mrp_time
 
-            # nodes = block.nodes
+            nodes = block.nodes
             for node_idx in range(len(nodes) - 1):
                 # 获取两个节点
                 node_a, node_b = nodes[node_idx], nodes[node_idx + 1]
                 node_a.next_nodes.append(node_b)
                 node_b.last_nodes.append(node_a)
+
         leaf_last_blocks = self.dag_leaf.last_blocks
         max_depth = max([block.end_depth for block in leaf_last_blocks])
         self.dag_leaf.start_depth = max_depth
