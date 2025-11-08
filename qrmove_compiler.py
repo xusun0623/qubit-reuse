@@ -101,7 +101,7 @@ class QRMoveCompiler:
             tmp_pivot = matrix.get_pivot_idx()
             history_pivot_idx.append(tmp_pivot)
 
-            print("tmp_pivot:", tmp_pivot)
+            # print("tmp_pivot:", tmp_pivot)
 
             if tmp_pivot == pivot_idx:
                 break
@@ -137,4 +137,5 @@ class QRMoveCompiler:
         
         matrix.restore_matrix()
         matrix.visual_dag()
+        pass
         

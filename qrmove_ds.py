@@ -58,12 +58,34 @@ class QRMoveDAG:
         G = nx.DiGraph()  # 创建一个有向无环图(DAG)
         queue = deque([self.dag_root])  # 使用队列来进行bfs
         visited = set()
+        node_labels = {}  # 存储节点标签
+        node_positions = {}  # 存储节点位置信息
+
         while queue:
             # ⭐️ 取出一个Block
             current_block = queue.popleft()
             if current_block in visited:
                 continue
             visited.add(current_block)
+
+            # 设置节点标签，包含start_depth和end_depth信息
+            if current_block.tag == "root":
+                node_id = "root"
+                node_labels[node_id] = (
+                    f"root\n[{current_block.start_depth},{current_block.end_depth}]"
+                )
+            elif current_block.tag == "leaf":
+                node_id = "leaf"
+                node_labels[node_id] = (
+                    f"leaf\n[{current_block.start_depth},{current_block.end_depth}]"
+                )
+            else:
+                node_id = current_block.logic_qid
+                # 添加start_depth和end_depth信息到节点标签
+                node_labels[node_id] = (
+                    f"{current_block.logic_qid}\n[{current_block.start_depth},{current_block.end_depth}]"
+                )
+
             for next_block in current_block.next_blocks:
                 c_qid = current_block.logic_qid
                 n_qid = next_block.logic_qid
@@ -72,12 +94,13 @@ class QRMoveDAG:
                     n_qid if n_qid != None else "leaf",
                 )
                 queue.append(next_block)
+
         plt.figure(figsize=(10, 12))
         pos = nx.drawing.nx_agraph.graphviz_layout(G, prog="dot", args="-Grankdir=TB")
         nx.draw_networkx_nodes(
             G,
             pos,
-            node_size=800,
+            node_size=1200,  # 增大节点大小以容纳更多信息
             node_color="lightblue",
             edgecolors="black",
             linewidths=1,
@@ -85,7 +108,9 @@ class QRMoveDAG:
         nx.draw_networkx_edges(
             G, pos, arrowstyle="->", arrowsize=20, edge_color="gray", width=1.5
         )
-        nx.draw_networkx_labels(G, pos, font_size=14, font_weight="bold")
+        nx.draw_networkx_labels(
+            G, pos, labels=node_labels, font_size=10, font_weight="bold"
+        )
         plt.title("Circuit DAG", fontsize=16, pad=20)
         plt.axis("off")  # 关闭坐标轴
         plt.tight_layout()
@@ -216,8 +241,14 @@ class QRMoveDAG:
         # Gemini： actual_pulled_pos, actual_insert_pos
 
         if actual_pulled_pos == 0:
-            # 被拉取的块，在头指针后面一个，需要断掉源列的头指针
-            self.matrix_column[from_col_idx].next_blocks = []
+            if src_block.next_blocks[0].tag == "leaf":
+                # 后面只有叶子节点了，需要断掉源列的头指针
+                self.matrix_column[from_col_idx].next_blocks = []
+            else:
+                # 后面还有一个节点，把这个节点赋给头指针.next
+                self.matrix_column[from_col_idx].next_blocks = [
+                    src_block.next_blocks[0]
+                ]
 
         if actual_insert_pos == -1:
             # 被拉取块的目的位置，在头指针后面一个，需要更新目标列的头指针
@@ -256,8 +287,6 @@ class QRMoveDAG:
         add_end_block = blocks_of_to_col[actual_insert_pos + 2]
 
         # print("actual ", add_start_block.tag)
-        if len(self.dag_root.next_blocks) < 10 and add_start_block.tag == "root":
-            pass
 
         # 先断开跨越指针
         self.remove_blocks(add_start_block.next_blocks, add_end_block)
@@ -280,7 +309,7 @@ class QRMoveDAG:
 
         # self.remove_blocks(self.dag_root.next_blocks, self.dag_leaf)
 
-        print("dag_root_next_blocks", len(self.dag_root.next_blocks))
+        # print("dag_root_next_blocks", len(self.dag_root.next_blocks))
 
         for i in to_update_blocks:
             self.update_depth(i)
@@ -333,11 +362,15 @@ class QRMoveDAG:
         self, total_blocks: list[QRMoveDAGBlock], remove_block: QRMoveDAGBlock
     ):
         idx = -1
+        remove_success = False
         for i in range(len(total_blocks)):
             b = total_blocks[i]
             if b.logic_qid == remove_block.logic_qid and b.tag == remove_block.tag:
                 idx = i
-        total_blocks.pop(idx)
+                remove_success = True
+                break
+        if remove_success:
+            total_blocks.pop(idx)
 
     def get_circuit_depth(self):
         # 获取当前电路的最大深度
