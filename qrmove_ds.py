@@ -230,6 +230,7 @@ class QRMoveDAG:
                     and src_block_middle_depth <= depth_range[1]
                 ):
                     actual_insert_pos = i
+        
         if actual_insert_pos == None:
             actual_insert_pos = len(to_col_blocks) - 1
 
@@ -239,8 +240,9 @@ class QRMoveDAG:
             if item.logic_qid == logic_qid:
                 actual_pulled_pos = idx
                 break
-
-        # Gemini： actual_pulled_pos, actual_insert_pos
+        
+        # Gemini： actual_pulled_pos
+        # Gemini： actual_insert_pos
 
         if actual_pulled_pos == 0:
             if src_block.next_blocks[0].tag == "leaf":
@@ -317,7 +319,7 @@ class QRMoveDAG:
             self.update_depth(i)
 
     def update_depth(self, block: QRMoveDAGBlock):
-        # 更新块、块内节点及之后所级联的深度
+        """更新块、块内节点及之后所级联的深度"""
 
         # 使用队列来进行bfs
         queue = deque([block])
@@ -423,11 +425,12 @@ class QRMoveDAG:
                 if block.logic_qid == None and _logic_qubit_id != -1:
                     block.logic_qid = _logic_qubit_id
                 if _gate_id != 0:
-                    # 为每个块设置开始深度、结束深度
                     if i == 0 or matrix[i - 1, j].gate_id == 0:
+                        # 为块设置开始深度
                         if block.start_depth == None:
                             block.start_depth = i + 1
                     if i + 1 >= row_num or matrix[i + 1, j].gate_id == 0:
+                        # 为块设置结束深度
                         block.end_depth = i + 1
                     if _gate_id not in added_node:
                         # 没有添加过
