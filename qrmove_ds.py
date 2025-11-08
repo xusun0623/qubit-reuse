@@ -23,6 +23,8 @@ class QRMoveDAGNode:
         # 指向下一个节点
         self.next_nodes: list[QRMoveDAGNode] = []
         self.last_nodes: list[QRMoveDAGNode] = []
+        # 下一个节点的最小间隙，一般用于表示两个双比特中间夹的单比特门数量
+        self.next_node_interval = 0
 
 
 class QRMoveDAGBlock:
@@ -321,7 +323,7 @@ class QRMoveDAG:
         queue = deque([block])
         visited = set()
 
-        while queue:
+        while len(queue) > 0:
             # ⭐️ 取出一个Block
             current_block = queue.popleft()
             if current_block in visited:
@@ -329,6 +331,8 @@ class QRMoveDAG:
             visited.add(current_block)
             # 取出上一个节点的最大深度
             last_block_end_depth = 0
+            if current_block == None:
+                pass
             for last_block in current_block.last_blocks:
                 tmp_last_end_depth = (
                     last_block.end_depth if last_block.end_depth != None else 0
@@ -347,6 +351,8 @@ class QRMoveDAG:
                             if node_item.logic_qid_b == current_block.logic_qid
                             else node_item.belong_block_b
                         )
+                        if other_block == None:
+                            continue
                         # 将关联的另一个block添加进队列里
                         queue.append(other_block)
                         node_item.depth = current_node_depth
@@ -641,6 +647,8 @@ class QRMoveMatrix:
 
     def extract_matrix(self) -> np.ndarray:
         # 抽取矩阵，向矩阵中增加MRP Phase
+        # SINGLE_GATE_ID = 1000000
+
         qc = self.quantum_circuit
         n = qc.num_qubits
         if n == 0:
@@ -656,7 +664,7 @@ class QRMoveMatrix:
                 continue
             layer = max(next_free[i] for i in qidxs)
             instr_layers.append(layer)
-            if len(qidxs) > 1:
+            if len(qidxs) >= 1:
                 gid = next_gid
                 multigate_records.append((gid, layer, qidxs))
                 next_gid += 1
@@ -705,30 +713,31 @@ class QRMoveMatrix:
                     object_matrix[row_idx, col_idx].logic_qubit_id = -1
                     object_matrix[row_idx, col_idx].idle_status = 0
 
-        rows, cols = object_matrix.shape
-        for _ in range(1000):
-            new_row = np.array(
-                [[QRMoveMatrixElement(int(0), int(-1), int(0)) for i in range(cols)]]
-            )
-            object_matrix = np.vstack((object_matrix, new_row))
+        # rows, cols = object_matrix.shape
+        # for _ in range(1000):
+        #     new_row = np.array(
+        #         [[QRMoveMatrixElement(int(0), int(-1), int(0)) for i in range(cols)]]
+        #     )
+        #     object_matrix = np.vstack((object_matrix, new_row))
 
         # 对于处于MRP阶段的元素：
         #    门ID           gate_id         置为0
         #    逻辑比特ID      logic_qubit_id  置为列索引
         #    空闲状态        idle_status     置为-1
         #    是否为MRP阶段   is_mrp          置为True
-        for j in range(cols):
-            find_idle_status = False
-            inserted_row = 0
-            for i in range(rows + 1000):
-                if object_matrix[i, j].idle_status == 0 and (not find_idle_status):
-                    continue
-                if object_matrix[i, j].idle_status == -1:
-                    find_idle_status = True
-                    continue
-                if find_idle_status and inserted_row < mrp_2q_ratio:
-                    object_matrix[i, j].idle_status = -1
-                    object_matrix[i, j].logic_qubit_id = j
-                    object_matrix[i, j].is_mrp = True
-                    inserted_row += 1
+        # for j in range(cols):
+        #     find_idle_status = False
+        #     inserted_row = 0
+        #     for i in range(rows + 1000):
+        #         if object_matrix[i, j].idle_status == 0 and (not find_idle_status):
+        #             continue
+        #         if object_matrix[i, j].idle_status == -1:
+        #             find_idle_status = True
+        #             continue
+        #         if find_idle_status and inserted_row < mrp_2q_ratio:
+        #             object_matrix[i, j].idle_status = -1
+        #             object_matrix[i, j].logic_qubit_id = j
+        #             object_matrix[i, j].is_mrp = True
+        #             inserted_row += 1
         self.matrix = object_matrix
+        pass

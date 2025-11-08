@@ -76,6 +76,9 @@ class QRMoveCompiler:
                         if node.belong_block_a.column_id == pivot_idx
                         else node.belong_block_a
                     )
+                    if other_block == None:
+                        # 单比特门，直接跳过
+                        continue
                     if other_block.column_id == None:
                         print(123)
                     matrix.try_pull_block(
@@ -134,8 +137,7 @@ class QRMoveCompiler:
             if is_cycle:
                 print(f"检测到周期性振荡，周期长度为: {cycle_length}")
                 break
-        
+
         matrix.restore_matrix()
         matrix.visual_dag()
         pass
-        
