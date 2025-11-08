@@ -230,7 +230,7 @@ class QRMoveDAG:
                     and src_block_middle_depth <= depth_range[1]
                 ):
                     actual_insert_pos = i
-        
+
         if actual_insert_pos == None:
             actual_insert_pos = len(to_col_blocks) - 1
 
@@ -240,7 +240,7 @@ class QRMoveDAG:
             if item.logic_qid == logic_qid:
                 actual_pulled_pos = idx
                 break
-        
+
         # Gemini： actual_pulled_pos
         # Gemini： actual_insert_pos
 
@@ -308,17 +308,74 @@ class QRMoveDAG:
             if block.column_id != to_col_idx:
                 block.column_id = to_col_idx
 
-        # if src_block.column_id == None:
-        #     print(111)
+        self.update_depth()
 
-        # self.remove_blocks(self.dag_root.next_blocks, self.dag_leaf)
+    def visual_gate_dag(self, gate_dag: nx.DiGraph):
+        """可视化 gate_dag 的拓扑结构"""
+        plt.figure(figsize=(12, 10))
+        pos = nx.spring_layout(gate_dag, k=3, iterations=50)
+        nx.draw_networkx_nodes(
+            gate_dag, pos, node_size=400, node_color="lightblue", alpha=0.9
+        )
+        nx.draw_networkx_edges(
+            gate_dag, pos, arrowstyle="->", arrowsize=60, edge_color="gray"
+        )
+        labels = {node: f"{node}" for node in gate_dag.nodes()}
+        nx.draw_networkx_labels(gate_dag, pos, labels, font_size=10)
+        edge_labels = nx.get_edge_attributes(gate_dag, "weight")
+        nx.draw_networkx_edge_labels(gate_dag, pos, edge_labels, font_size=8)
+        plt.title("Gate Dependency DAG Topology", size=15)
+        plt.axis("off")
+        plt.tight_layout()
+        plt.show()
 
-        # print("dag_root_next_blocks", len(self.dag_root.next_blocks))
+    def update_depth(self):
+        """计算所有块、节点的深度"""
+        dag_root = self.dag_root
+        gate_dag = nx.DiGraph()
+        self.visualize_dag()
+        for col_idx in range(len(self.matrix_column)):
+            blocks_of_col = self.get_blocks_by_column_id(col_idx)
+            last_gate_id = None
+            cross_block = False
+            for block_idx, block in enumerate(blocks_of_col):
+                for node in block.nodes:
+                    if last_gate_id == None:
+                        last_gate_id = node.gate_id
+                    else:
+                        gate_dag.add_edge(
+                            last_gate_id,
+                            node.gate_id,
+                            weight=(self.mrp_time if cross_block else 1),
+                        )
+                        last_gate_id = node.gate_id
+                        cross_block = False
+                cross_block = True
+        
+        self.visual_gate_dag(gate_dag)
 
-        for i in to_update_blocks:
-            self.update_depth(i)
+        # 拓扑排序
+        topological_order = list(nx.topological_sort(gate_dag))
+        gate_depths = {gate_id: 0 for gate_id in topological_order}
 
-    def update_depth(self, block: QRMoveDAGBlock):
+        # 按照拓扑顺序计算depth
+        for gate_id in topological_order:
+            current_depth = gate_depths[gate_id]
+
+            if gate_dag.in_degree(gate_id) == 0:
+                gate_depths[gate_id] = 1
+                current_depth = 1
+
+            # 更新后续节点的depth
+            for successor in gate_dag.successors(gate_id):
+                edge_weight = gate_dag[gate_id][successor]["weight"]
+                new_depth = current_depth + edge_weight
+                if new_depth > gate_depths[successor]:
+                    gate_depths[successor] = new_depth
+
+        pass
+
+    def _update_depth(self, block: QRMoveDAGBlock):
         """更新块、块内节点及之后所级联的深度"""
 
         # 使用队列来进行bfs
@@ -332,9 +389,9 @@ class QRMoveDAG:
                 continue
             visited.add(current_block)
             # 取出上一个节点的最大深度
-            last_block_end_depth = 0
             if current_block == None:
                 pass
+            last_block_end_depth = 0
             for last_block in current_block.last_blocks:
                 tmp_last_end_depth = (
                     last_block.end_depth if last_block.end_depth != None else 0
@@ -497,6 +554,7 @@ class QRMoveMatrix:
         self.circuit_dag: QRMoveDAG = None
         self.extract_matrix()
         self.construct_dag()
+        self.visual_dag()
 
     def restore_matrix(self):
         dag = self.circuit_dag
@@ -716,31 +774,5 @@ class QRMoveMatrix:
                     object_matrix[row_idx, col_idx].logic_qubit_id = -1
                     object_matrix[row_idx, col_idx].idle_status = 0
 
-        # rows, cols = object_matrix.shape
-        # for _ in range(1000):
-        #     new_row = np.array(
-        #         [[QRMoveMatrixElement(int(0), int(-1), int(0)) for i in range(cols)]]
-        #     )
-        #     object_matrix = np.vstack((object_matrix, new_row))
-
-        # 对于处于MRP阶段的元素：
-        #    门ID           gate_id         置为0
-        #    逻辑比特ID      logic_qubit_id  置为列索引
-        #    空闲状态        idle_status     置为-1
-        #    是否为MRP阶段   is_mrp          置为True
-        # for j in range(cols):
-        #     find_idle_status = False
-        #     inserted_row = 0
-        #     for i in range(rows + 1000):
-        #         if object_matrix[i, j].idle_status == 0 and (not find_idle_status):
-        #             continue
-        #         if object_matrix[i, j].idle_status == -1:
-        #             find_idle_status = True
-        #             continue
-        #         if find_idle_status and inserted_row < mrp_2q_ratio:
-        #             object_matrix[i, j].idle_status = -1
-        #             object_matrix[i, j].logic_qubit_id = j
-        #             object_matrix[i, j].is_mrp = True
-        #             inserted_row += 1
         self.matrix = object_matrix
         pass
