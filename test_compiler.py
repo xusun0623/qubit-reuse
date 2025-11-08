@@ -4,7 +4,7 @@ from hardware import HardwareParams
 from qrmove_compiler import QRMoveCompiler
 from utils import get_quantum_circuit
 
-_type = "bv"
+_type = "xor"
 _qubit_num = 10 # 395行 * 100列
 
 quantum_circuit: QuantumCircuit = get_quantum_circuit(_type, _qubit_num)

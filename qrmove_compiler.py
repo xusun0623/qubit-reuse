@@ -50,6 +50,8 @@ class QRMoveCompiler:
         matrix = self.circuit_matrix
         pivot_idx = matrix.get_pivot_idx()  # 枢轴
 
+        history_pivot_idx = [pivot_idx]
+
         def near_col(col_idx):
             # 获取 col_idx 列的相邻列
             col_num = len(matrix.circuit_dag.matrix_column)
@@ -74,6 +76,8 @@ class QRMoveCompiler:
                         if node.belong_block_a.column_id == pivot_idx
                         else node.belong_block_a
                     )
+                    if other_block.column_id == None:
+                        print(123)
                     matrix.try_pull_block(
                         other_block.column_id,
                         other_block.logic_qid,
@@ -87,13 +91,50 @@ class QRMoveCompiler:
                 blocks = matrix.circuit_dag.get_blocks_by_column_id(j)
                 for block in blocks:
                     if block.logic_qid not in pulled_logic_qid:
+                        if block.column_id == None:
+                            print(123)
                         matrix.try_pull_block(
                             block.column_id, block.logic_qid, pivot_idx, block
                         )
 
             # 重新计算枢轴
             tmp_pivot = matrix.get_pivot_idx()
+            history_pivot_idx.append(tmp_pivot)
+
+            print("tmp_pivot:", tmp_pivot)
+
             if tmp_pivot == pivot_idx:
                 break
+
+            def has_period_cycle(
+                history_pivot_idx, min_cycle_length=2, max_cycle_length=5
+            ):
+                """检测是否存在周期性循环"""
+                history_len = len(history_pivot_idx)
+
+                # 检查不同长度的周期
+                for cycle_length in range(
+                    min_cycle_length, min(max_cycle_length + 1, history_len // 2 + 1)
+                ):
+                    # 如果历史记录足够长，检查是否存在重复模式
+                    if history_len >= 2 * cycle_length:
+                        recent_segment = history_pivot_idx[-cycle_length:]
+                        previous_segment = history_pivot_idx[
+                            -2 * cycle_length : -cycle_length
+                        ]
+
+                        # 如果最近的序列与之前的序列相同，则检测到周期
+                        if recent_segment == previous_segment:
+                            return True, cycle_length
+
+                return False, 0
+
+            # 在循环中使用 检测周期性
+            is_cycle, cycle_length = has_period_cycle(history_pivot_idx)
+            if is_cycle:
+                print(f"检测到周期性振荡，周期长度为: {cycle_length}")
+                break
         
+        matrix.restore_matrix()
         matrix.visual_dag()
+        
