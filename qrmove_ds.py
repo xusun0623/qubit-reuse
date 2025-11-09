@@ -365,7 +365,7 @@ class QRMoveDAG:
                     cross_block = False
             cross_block = True
             return last_gate_id, cross_block
-        
+
         if logic_qid == 16:
             pass
 
@@ -400,7 +400,7 @@ class QRMoveDAG:
                     )
         try:
             # nx.topological_sort(gate_dag) # 不报错
-            topological_order = list(nx.topological_sort(gate_dag)) # 报错
+            topological_order = list(nx.topological_sort(gate_dag))  # 报错
         except Exception as e:
             print(e)
             return False
@@ -422,9 +422,6 @@ class QRMoveDAG:
         to_col_idx 目标列index,
         src_block源 块
         actual_insert_pos 实际插入的位置"""
-
-        if logic_qid == 16:
-            pass
 
         # 目标列的所有块
         to_col_blocks = self.get_blocks_by_column_id(to_col_idx)
