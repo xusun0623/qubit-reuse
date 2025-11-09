@@ -213,7 +213,11 @@ class QRMoveDAG:
 
         def near_block_idx(idx):
             # 遍历块周围的idx，范围是 [-1, block_num - 1]
-            a_list = [idx - 1, idx - 2, idx, idx + 1, idx + 2]
+            a_list = [idx]
+            for i in range(1, 20):
+                a_list.append(idx + i)
+                a_list.append(idx - i)
+            # a_list = [idx - 1, idx - 2, idx, idx + 1, idx + 2]
             b_list = [-1] + [i for i in range(block_num)]
             intersection = [x for x in a_list if x in b_list]
             return intersection
@@ -272,6 +276,8 @@ class QRMoveDAG:
         arr = np.array(weights)
         sorted_indices_desc = np.argsort(arr)[::-1]
         top_indices_desc = sorted_indices_desc[:100]
+        
+        
 
         for i in top_indices_desc:
             actual_insert_pos = all_deep_range_idx[i]
@@ -402,7 +408,7 @@ class QRMoveDAG:
             # nx.topological_sort(gate_dag) # 不报错
             topological_order = list(nx.topological_sort(gate_dag))  # 报错
         except Exception as e:
-            print(e)
+            # print(e)
             return False
 
         return True
@@ -501,7 +507,6 @@ class QRMoveDAG:
         """计算所有块、节点的深度"""
         dag_root = self.dag_root
         gate_dag = nx.DiGraph()
-        pass
         for col_idx in range(len(self.matrix_column)):
             blocks_of_col = self.get_blocks_by_column_id(col_idx)
             last_gate_id = None
@@ -523,8 +528,8 @@ class QRMoveDAG:
                         cross_block = False
                 cross_block = True
 
-        self.visualize_dag()
-        self.visual_gate_dag(gate_dag)
+        # self.visualize_dag()
+        # self.visual_gate_dag(gate_dag)
 
         # 拓扑排序
         topological_order = list(nx.topological_sort(gate_dag))
@@ -545,13 +550,24 @@ class QRMoveDAG:
                 if new_depth > gate_depths[successor]:
                     gate_depths[successor] = new_depth
 
+        max_depth = 0
         for col in range(len(self.matrix_column)):
             for block in self.get_blocks_by_column_id(col):
                 nodes = block.nodes
                 block.start_depth = gate_depths[nodes[0].gate_id]
                 block.end_depth = gate_depths[nodes[-1].gate_id] + self.mrp_time
-                
+                max_depth = max(max_depth, block.end_depth)
+        
+        self.dag_leaf.start_depth = max_depth
+        self.dag_leaf.end_depth = max_depth
 
+    def print_block_depth(self):
+        for col_idx, col in enumerate(self.matrix_column):
+            print(f"------------ 列{col_idx} -------------")
+            for block in self.get_blocks_by_column_id(col_idx):
+                print(
+                    f"{block.logic_qid}: {block.start_depth} {block.end_depth}"
+                )
 
     def remove_blocks(
         self, total_blocks: list[QRMoveDAGBlock], remove_block: QRMoveDAGBlock
@@ -684,7 +700,7 @@ class QRMoveMatrix:
         self.circuit_dag: QRMoveDAG = None
         self.extract_matrix()
         self.construct_dag()
-        self.visual_dag()
+        # self.visual_dag()
 
     def restore_matrix(self):
         dag = self.circuit_dag

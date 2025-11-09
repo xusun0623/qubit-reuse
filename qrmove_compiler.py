@@ -28,7 +28,6 @@ class QRMoveCompiler:
         self.circuit_matrix: QRMoveMatrix = QRMoveMatrix(
             quantum_circuit, quantum_chip, hardware_params
         )
-        self.compile_program()
 
     def compile_program(self):
         # 编译程序，三阶段优化
@@ -136,6 +135,7 @@ class QRMoveCompiler:
                 print(f"检测到周期性振荡，周期长度为: {cycle_length}")
                 break
 
-        matrix.restore_matrix()
+        # matrix.restore_matrix()
+        # self.circuit_matrix.circuit_dag.print_block_depth()
         matrix.visual_dag()
-        pass
+        
