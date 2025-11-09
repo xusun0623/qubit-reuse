@@ -399,7 +399,8 @@ class QRMoveDAG:
                         src_block, _last_gate_id, _cross_block
                     )
         try:
-            topological_order = list(nx.topological_sort(gate_dag))
+            # nx.topological_sort(gate_dag) # 不报错
+            topological_order = list(nx.topological_sort(gate_dag)) # 报错
         except Exception as e:
             print(e)
             return False
