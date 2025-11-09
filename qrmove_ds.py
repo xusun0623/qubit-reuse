@@ -147,11 +147,21 @@ class QRMoveDAG:
             blocks.append(block_pointer)
         return blocks
 
-    def can_be_pulled(self, from_col_idx, logic_qid, to_col_idx, src_block):
-        """源列idx, 源块qid, 目标列idx, 源块"""
+    def near_col(self, col_idx):
+        # 获取 col_idx 列的附近的列
+        col_num = self.matrix.shape[1]
+        near_col_idx = []
+        near_col_idx.append(col_idx)
+        for i in range(1, col_num):
+            if col_idx - i >= 0:
+                near_col_idx.append(col_idx - i)
+            if col_idx + i < col_num:
+                near_col_idx.append(col_idx + i)
+        return near_col_idx
+
+    def can_be_pulled(self, to_col_idx, src_block):
         # 是否可以将一个块拉到目标列
         to_col_gate_ids = []  # 目标列的所有 gate_id
-
         to_column_blocks: list[QRMoveDAGBlock] = self.get_blocks_by_column_id(
             to_col_idx
         )
@@ -159,91 +169,264 @@ class QRMoveDAG:
             for node in block.nodes:
                 # 获取目标列的所有 gate_id
                 to_col_gate_ids.append(node.gate_id)
-
         for node in src_block.nodes:
             node_gate_id = node.gate_id
             # 如果有门ID在目标列中，则返回False
             if node_gate_id in to_col_gate_ids:
                 return False
-
         return True
 
-    def try_pull_block(self, from_col_idx, logic_qid, to_col_idx, src_block):
-        # 定位要拉取的目标块
-        # src_block = self.get_block_by_lqid(logic_qid, from_col_idx)
-        # if src_block == False:
-        #     return False
+    def get_block_idx_by_col_qid(self, col_idx, logic_qid):
+        actual_pulled_pos = -1  # ⭐️ 拉取块所在源列的块index
+        all_blocks_of_pulled_column = self.get_blocks_by_column_id(col_idx)
+        for idx, item in enumerate(all_blocks_of_pulled_column):
+            if item.logic_qid == logic_qid:
+                actual_pulled_pos = idx
+                break
+        return actual_pulled_pos
 
-        def near_col(col_idx):
-            # 获取 col_idx 列的附近的列
-            col_num = self.matrix.shape[1]
-            near_col_idx = []
-            near_col_idx.append(col_idx)
-            for i in range(1, col_num):
-                if col_idx - i >= 0:
-                    near_col_idx.append(col_idx - i)
-                if col_idx + i < col_num:
-                    near_col_idx.append(col_idx + i)
-            return near_col_idx
+    def can_actual_be_pulled(
+        self, to_col_idx, from_col_idx, logic_qid, src_block: QRMoveDAGBlock
+    ):
+        # 已经第一次筛选过了col_idx
+        # 是否可以将一个块实际拉到目标列
+        # 需要返回拉到目标列的块index，不行就返回-1
+        # 这个或许需要 DAG 辅助判断一下
 
-        pulled = False
-        actual_pull_col = None  # 实际拉到的列
-        for i in near_col(to_col_idx):
+        actual_insert_pos = None  # ⭐️ 拉取块所在目标列的块index
+        to_col_blocks = self.get_blocks_by_column_id(to_col_idx)  # 目标列的所有块
+        block_num = len(to_col_blocks)
+
+        up_down_depth = src_block.start_depth + src_block.end_depth
+        mid_depth = up_down_depth / 2  # 居中的位置
+        if block_num == 0 or mid_depth <= to_col_blocks[0].start_depth:
+            actual_insert_pos = -1
+        if actual_insert_pos == None:
+            for i in range(0, block_num - 1):
+                block_start_depth = to_col_blocks[i].start_depth
+                block_end_depth = to_col_blocks[i + 1].start_depth
+                depth_range = [block_start_depth, block_end_depth]
+                if mid_depth >= depth_range[0] and mid_depth <= depth_range[1]:
+                    actual_insert_pos = i
+        if actual_insert_pos == None:
+            actual_insert_pos = block_num - 1
+
+        def near_block_idx(idx):
+            # 遍历块周围的idx，范围是 [-1, block_num - 1]
+            a_list = [idx - 1, idx - 2, idx, idx + 1, idx + 2]
+            b_list = [-1] + [i for i in range(block_num)]
+            intersection = [x for x in a_list if x in b_list]
+            return intersection
+
+        # 做第一次filter，以概率接收
+        near_interval = near_block_idx(to_col_idx)
+
+        all_deep_range = []
+        all_deep_range_idx = []
+
+        for interval_idx in near_interval:
+            depth_range = [0, 0]
+            if interval_idx == -1:
+                if len(to_col_blocks) == 0:
+                    all_deep_range.append([0, 0])
+                    all_deep_range_idx.append(interval_idx)
+                    continue
+                depth_range = [0, to_col_blocks[0].start_depth]
+                all_deep_range.append(depth_range)
+                all_deep_range_idx.append(interval_idx)
+                continue
+            if interval_idx == block_num - 1:
+                max_depth = to_col_blocks[block_num - 1].end_depth
+                depth_range = [max_depth, max_depth + self.mrp_time]
+                all_deep_range.append(depth_range)
+                all_deep_range_idx.append(interval_idx)
+                continue
+            depth_range = [
+                to_col_blocks[interval_idx].end_depth,
+                to_col_blocks[interval_idx + 1].start_depth,
+            ]
+            all_deep_range.append(depth_range)
+            all_deep_range_idx.append(interval_idx)
+
+        _x = src_block.start_depth
+        _y = src_block.end_depth
+
+        weights = []
+
+        for i in all_deep_range:
+            x, y = i[0], i[1]
+            weight = 0
+            if y > _x:
+                weight = 1 - math.exp(_x - y)
+                weights.append(weight)
+                continue
+            if _y > x:
+                weight = 1 - math.exp(x - _y)
+                weights.append(weight)
+                continue
+            x_y_depths = [x, _x, y, _y]
+            x_y_depths.sort()
+            weight = 2 - math.exp(x_y_depths[1] - x_y_depths[2])
+            weights.append(weight)
+
+        arr = np.array(weights)
+        sorted_indices_desc = np.argsort(arr)[::-1]
+        top_indices_desc = sorted_indices_desc[:3]
+
+        for i in top_indices_desc:
+            actual_insert_pos = all_deep_range_idx[i]
+            if self.feasible_by_dag_after_pull(
+                from_col_idx,
+                logic_qid,
+                to_col_idx,
+                self.get_block_idx_by_col_qid(from_col_idx, logic_qid),
+                actual_insert_pos,
+                src_block,
+            ):
+                # 最后再模拟一次插入，如果结果是Feasible的
+                return actual_insert_pos
+
+        return None
+
+    def traverse_near(self, to_col_idx, from_col_idx, logic_qid, src_block):
+        if to_col_idx != 0:
+            pass
+        if logic_qid == 16:
+            pass
+        for i in self.near_col(to_col_idx):
             # 拉远了可不行
             if abs(i - to_col_idx) > abs(to_col_idx - from_col_idx):
                 continue
             if i == from_col_idx:
                 continue
-            can_pull = self.can_be_pulled(from_col_idx, logic_qid, i, src_block)
-            if can_pull:
-                pulled = True
-                actual_pull_col = i
-                break
+            # 第一次判断是否可以拉取
+            can_pull_col = self.can_be_pulled(i, src_block)
+            if can_pull_col:
+                # 第二次判断是否可以拉取
+                # 输入：列的idx
+                # 输出：实际拉到的所在列的块idx
+                # 不能拉取：返回-1
+                pull_to_block_idx = self.can_actual_be_pulled(
+                    i, from_col_idx, logic_qid, src_block
+                )
+                if pull_to_block_idx != None:
+                    return i, pull_to_block_idx
+        return None, None
 
-        # 拉取 block 块到目标列
-        if pulled:
-            self.confirm_pull(from_col_idx, logic_qid, actual_pull_col, src_block)
+    def try_pull_block(self, from_col_idx, logic_qid, to_col_idx, src_block):
+        # 定位要拉取的目标块
+
+        pull_to_col, pull_to_block_idx = self.traverse_near(
+            to_col_idx, from_col_idx, logic_qid, src_block
+        )
+        # 遍历周围的列，先看门冲突，再看 DAG 冲突
+
+        if pull_to_col != None:
+            # 可以拉取，执行拉动操作
+            pulled_pos = self.get_block_idx_by_col_qid(from_col_idx, logic_qid)
+            self.confirm_pull(
+                from_col_idx,
+                logic_qid,
+                pull_to_col,
+                pulled_pos,
+                pull_to_block_idx,
+                src_block,
+            )
+
+    def feasible_by_dag_after_pull(
+        self,
+        from_col_idx,  # 源列index
+        logic_qid,  # 源块qid
+        to_col_idx,  # 目标列index
+        actual_pulled_pos,  # 源块所在源列的块index
+        actual_insert_pos,  # 目标块所在目标列的块index
+        src_block: QRMoveDAGBlock,
+    ):
+        """模拟拉取, 返回是否feasible
+        from_col_idx 源列index,
+        logic_qid 源块qid,
+        to_col_idx 目标列index,
+        src_block 源块
+        actual_insert_pos 实际插入的位置"""
+
+        gate_dag = nx.DiGraph()
+
+        def insert_nodes_by_block(tmpBlock: QRMoveDAGBlock, last_gate_id, cross_block):
+            for node in tmpBlock.nodes:
+                if last_gate_id == None:
+                    last_gate_id = node.gate_id
+                else:
+                    gate_dag.add_edge(
+                        last_gate_id,
+                        node.gate_id,
+                        weight=(self.mrp_time if cross_block else 1),
+                    )
+                    last_gate_id = node.gate_id
+                    cross_block = False
+            cross_block = True
+            return last_gate_id, cross_block
+        
+        if logic_qid == 16:
+            pass
+
+        col_num = len(self.matrix_column)
+        for col_idx in range(col_num):
+            from_flag = col_idx == from_col_idx
+            from_idx = actual_pulled_pos
+            to_flag = col_idx == to_col_idx
+            to_idx = actual_insert_pos
+            blocks_of_col = self.get_blocks_by_column_id(col_idx)
+            _last_gate_id = None
+            _cross_block = False
+
+            if to_flag and len(blocks_of_col) == 0:
+                # 目标列为空
+                _last_gate_id, _cross_block = insert_nodes_by_block(
+                    src_block, _last_gate_id, _cross_block
+                )
+            for block_idx, block in enumerate(blocks_of_col):
+                if from_flag and block_idx == from_idx:  # 略过已经移走的块
+                    continue
+                if to_flag and to_idx == -1 and block_idx == 0:  # 头插
+                    _last_gate_id, _cross_block = insert_nodes_by_block(
+                        src_block, _last_gate_id, _cross_block
+                    )
+                _last_gate_id, _cross_block = insert_nodes_by_block(
+                    block, _last_gate_id, _cross_block
+                )
+                if to_flag and to_idx == block_idx:  # 尾插
+                    _last_gate_id, _cross_block = insert_nodes_by_block(
+                        src_block, _last_gate_id, _cross_block
+                    )
+        try:
+            topological_order = list(nx.topological_sort(gate_dag))
+        except Exception as e:
+            print(e)
+            return False
+
+        return True
 
     def confirm_pull(
-        self, from_col_idx, logic_qid, to_col_idx, src_block: QRMoveDAGBlock
+        self,
+        from_col_idx,
+        logic_qid,
+        to_col_idx,
+        actual_pulled_pos,
+        actual_insert_pos,
+        src_block: QRMoveDAGBlock,
     ):
-        """确认拉取, from_col_idx 源列index, logic_qid 源块qid, to_col_idx 目标列index, src_block源 块"""
+        """确认拉取,
+        from_col_idx 源列index,
+        logic_qid 源块qid,
+        to_col_idx 目标列index,
+        src_block源 块
+        actual_insert_pos 实际插入的位置"""
+
+        if logic_qid == 16:
+            pass
+
+        # 目标列的所有块
         to_col_blocks = self.get_blocks_by_column_id(to_col_idx)
-        # 实际插入的位置
-        actual_insert_pos = None  # ⭐️ 拉取块所在目标列的块index
-        src_block_middle_depth = (
-            src_block.start_depth + src_block.end_depth
-        ) / 2  # 居中的位置
-        if (
-            len(to_col_blocks) == 0
-            or src_block_middle_depth <= to_col_blocks[0].start_depth
-        ):
-            actual_insert_pos = -1
-        if actual_insert_pos == None:
-            for i in range(0, len(to_col_blocks) - 1):
-                depth_range = [
-                    to_col_blocks[i].start_depth,
-                    to_col_blocks[i + 1].start_depth,
-                ]
-                if (
-                    src_block_middle_depth >= depth_range[0]
-                    and src_block_middle_depth <= depth_range[1]
-                ):
-                    actual_insert_pos = i
-
-        if actual_insert_pos == None:
-            actual_insert_pos = len(to_col_blocks) - 1
-
-        actual_pulled_pos = -1  # ⭐️ 拉取块所在源列的块index
-        all_blocks_of_pulled_column = self.get_blocks_by_column_id(from_col_idx)
-        for idx, item in enumerate(all_blocks_of_pulled_column):
-            if item.logic_qid == logic_qid:
-                actual_pulled_pos = idx
-                break
-
-        # Gemini： actual_pulled_pos
-        # Gemini： actual_insert_pos
-
         if actual_pulled_pos == 0:
             if src_block.next_blocks[0].tag == "leaf":
                 # 后面只有叶子节点了，需要断掉源列的头指针
@@ -258,16 +441,6 @@ class QRMoveDAG:
             # 被拉取块的目的位置，在头指针后面一个，需要更新目标列的头指针
             self.matrix_column[to_col_idx].next_blocks = [src_block]
 
-        # 拉取的参数：
-        #   from_col_idx - 被拉取的列index
-        #   to_col_idx - 拉取到的列index
-        #   src_block - 被拉取的块
-        #   logic_qid - 逻辑比特ID（暂时未用）
-        #   actual_insert_pos - 实际插入的位置
-
-        # 完成 Move 之后，需要更新 depth 的块
-        to_update_blocks: list[QRMoveDAGBlock] = []
-
         # 新增一个跨越 src_block 的双向指针
         if not (
             src_block.last_blocks[0].tag == "root"
@@ -275,8 +448,6 @@ class QRMoveDAG:
         ):
             src_block.last_blocks[0].next_blocks.append(src_block.next_blocks[0])
             src_block.next_blocks[0].last_blocks.append(src_block.last_blocks[0])
-        else:
-            to_update_blocks.append(src_block.next_blocks[0])
 
         # 删除 src_block 的上下四指针
         self.remove_blocks(src_block.last_blocks[0].next_blocks, src_block)
@@ -290,8 +461,6 @@ class QRMoveDAG:
         add_start_block = blocks_of_to_col[actual_insert_pos + 1]
         add_end_block = blocks_of_to_col[actual_insert_pos + 2]
 
-        # print("actual ", add_start_block.tag)
-
         # 先断开跨越指针
         self.remove_blocks(add_start_block.next_blocks, add_end_block)
         self.remove_blocks(add_end_block.last_blocks, add_start_block)
@@ -302,12 +471,11 @@ class QRMoveDAG:
         src_block.next_blocks.append(add_end_block)
         add_end_block.last_blocks.append(src_block)
 
-        to_update_blocks.append(src_block)
-
         for block in self.get_blocks_by_column_id(to_col_idx):
             if block.column_id != to_col_idx:
                 block.column_id = to_col_idx
 
+        # 最后一步，更新所有块和节点的深度
         self.update_depth()
 
     def visual_gate_dag(self, gate_dag: nx.DiGraph):
@@ -320,7 +488,9 @@ class QRMoveDAG:
         nx.draw_networkx_edges(
             gate_dag, pos, arrowstyle="->", arrowsize=60, edge_color="gray"
         )
-        labels = {node: f"{node}" for node in gate_dag.nodes()}
+        labels = {
+            node: f"{node}\n{gate_dag.nodes[node]['qid']}" for node in gate_dag.nodes()
+        }
         nx.draw_networkx_labels(gate_dag, pos, labels, font_size=10)
         edge_labels = nx.get_edge_attributes(gate_dag, "weight")
         nx.draw_networkx_edge_labels(gate_dag, pos, edge_labels, font_size=8)
@@ -333,13 +503,16 @@ class QRMoveDAG:
         """计算所有块、节点的深度"""
         dag_root = self.dag_root
         gate_dag = nx.DiGraph()
-        self.visualize_dag()
+        pass
         for col_idx in range(len(self.matrix_column)):
             blocks_of_col = self.get_blocks_by_column_id(col_idx)
             last_gate_id = None
             cross_block = False
             for block_idx, block in enumerate(blocks_of_col):
                 for node in block.nodes:
+                    gate_dag.add_node(
+                        node.gate_id, qid=f"{node.logic_qid_a}, {node.logic_qid_b}"
+                    )
                     if last_gate_id == None:
                         last_gate_id = node.gate_id
                     else:
@@ -351,7 +524,8 @@ class QRMoveDAG:
                         last_gate_id = node.gate_id
                         cross_block = False
                 cross_block = True
-        
+
+        self.visualize_dag()
         self.visual_gate_dag(gate_dag)
 
         # 拓扑排序
@@ -372,8 +546,6 @@ class QRMoveDAG:
                 new_depth = current_depth + edge_weight
                 if new_depth > gate_depths[successor]:
                     gate_depths[successor] = new_depth
-
-        pass
 
     def _update_depth(self, block: QRMoveDAGBlock):
         """更新块、块内节点及之后所级联的深度"""

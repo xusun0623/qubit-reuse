@@ -79,8 +79,6 @@ class QRMoveCompiler:
                     if other_block == None:
                         # 单比特门，直接跳过
                         continue
-                    if other_block.column_id == None:
-                        print(123)
                     matrix.try_pull_block(
                         other_block.column_id,
                         other_block.logic_qid,
