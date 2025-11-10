@@ -37,6 +37,8 @@ class QRMoveCompiler:
 
     def compress_depth_with_extra_qubit(self):
         # Stage 3：通过额外的量子比特，来进行深度压缩
+        _dag: QRMoveDAG = self.circuit_matrix.circuit_dag  # DAG图
+        _dag.compress_depth_with_extra_qubit()
         pass
 
     def eliminate_idle_period(self):
@@ -136,4 +138,4 @@ class QRMoveCompiler:
 
         # matrix.restore_matrix()
         # self.circuit_matrix.circuit_dag.print_block_depth()
-        matrix.visual_dag()
+        # matrix.visual_dag()

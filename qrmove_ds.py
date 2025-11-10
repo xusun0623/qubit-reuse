@@ -8,6 +8,7 @@ import graphviz
 import networkx as nx
 import matplotlib.pyplot as plt
 from collections import deque
+import random
 
 
 class QRMoveDAGNode:
@@ -46,18 +47,316 @@ class QRMoveDAGBlock:
 
 class QRMoveDAG:
     # DAG的CP块
-    def __init__(self, matrix: np.ndarray, mrp_time):
+    def __init__(self, matrix: np.ndarray, mrp_time, quantum_chip: QuantumChip):
         self.mrp_time = mrp_time
         self.matrix: np.ndarray = matrix
+        self.quantum_chip: QuantumChip = quantum_chip
         self.dag_root: QRMoveDAGBlock = QRMoveDAGBlock()
         self.dag_root.tag = "root"
         self.dag_leaf: QRMoveDAGBlock = QRMoveDAGBlock()
         self.dag_leaf.tag = "leaf"
         self.matrix_column: list[QRMoveDAGBlock] = []
         self.build_dag()
-        
+
+    def compress_depth_with_extra_qubit(self):
+        print(self.get_circuit_depth())
+        self.visualize_dag()
+        a = [i for i in range(len(self.matrix_column))]
+        b = self.get_no_none_col()
+        none_col = [x for x in a if x not in b]
+        col, c_idx = 1, 1
+        src_block = self.get_blocks_by_column_id(col)[c_idx]
+        self.confirm_pull(col, src_block.logic_qid, 2, 1, -1, src_block)
+        print(self.get_circuit_depth())
+        self.visualize_dag()
+        print(self.get_circuit_depth())
+
+    def get_pivot_idx(self) -> int:
+        # 获取矩阵的枢轴
+        col_num = len(self.matrix_column)
+        pivot_idx = -1
+        pivot_gate_sum = 0
+        for col_idx in range(col_num):
+            count = 0
+            blocks = self.get_blocks_by_column_id(col_idx)
+            for block in blocks:
+                count += len(block.nodes)
+            if count > pivot_gate_sum:
+                pivot_gate_sum = count
+                pivot_idx = col_idx
+        return pivot_idx
+
+    def cal_swap_cost(self):
+        # square, hexagon, heavy_square, heavy_hexagon
+        chip_type = self.quantum_chip.chip_type
+        all_gates = []
+        for col_idx, col in enumerate(self.matrix_column):
+            blocks = self.get_blocks_by_column_id(col_idx)
+            if len(blocks) == 0:
+                continue
+            for block in blocks:
+                for node in block.nodes:
+                    if node.belong_block_b == None:
+                        continue
+                    two_col = [
+                        node.belong_block_a.column_id,
+                        node.belong_block_b.column_id,
+                    ]
+                    two_col.sort()
+                    if two_col not in all_gates:
+                        all_gates.append(two_col)
+        total_cost = 0
+        for gate in all_gates:
+            degree_map = {
+                "square": 4,
+                "hexagon": 3,
+                "heavy_square": 3,
+                "heavy_hexagon": 2.5,
+            }
+            avg_degree = degree_map[chip_type]
+            total_cost += math.floor((gate[0] - gate[1]) / avg_degree)
+        return total_cost
+
+    def cost_b_to_i(
+        self,
+        from_col_idx,  # 源列index
+        logic_qid,  # 源块qid
+        to_col_idx,  # 目标列index
+        actual_pulled_pos,  # 源块所在源列的块index
+        actual_insert_pos,  # 目标块所在目标列的块index
+        src_block: QRMoveDAGBlock,
+    ):
+        # 将 b 移动到 i 槽的成本
+        before_swap = self.cal_swap_cost()
+        before_depth = self.get_circuit_depth()
+        if not self.feasible_by_dag_after_pull(
+            from_col_idx,
+            logic_qid,
+            to_col_idx,
+            actual_pulled_pos,
+            actual_insert_pos,
+            src_block,
+        ):
+            return 10000
+        # 移动一下
+        self.confirm_pull(
+            from_col_idx,
+            logic_qid,
+            to_col_idx,
+            actual_pulled_pos,
+            actual_insert_pos,
+            src_block,
+        )
+        after_swap = self.cal_swap_cost()
+        after_depth = self.get_circuit_depth()
+        # 再给它移回去
+        self.confirm_pull(
+            to_col_idx,
+            logic_qid,
+            from_col_idx,
+            actual_insert_pos + 1,
+            actual_pulled_pos - 1,
+            src_block,
+        )
+        SWAP_TO_CNOT = 3
+        return (after_swap - before_swap) * SWAP_TO_CNOT * 2 + (
+            after_depth - before_depth
+        )
+
+    def get_no_none_col(self) -> list[int]:
+        # 获取非空列
+        col_num = len(self.matrix_column)
+        no_none_col = []
+        for col_idx in range(col_num):
+            blocks = self.get_blocks_by_column_id(col_idx)
+            if len(blocks) > 0:
+                no_none_col.append(col_idx)
+        return no_none_col
+
     def compress_depth_with_existing_qubit(self):
         # 通过已有的量子比特，对深度进行压缩
+        pivot_idx = self.get_pivot_idx()  # 先获取枢轴
+        count = 300
+        K = 10  # 选择被移动的块数量
+        initial_temperature = 1.0
+        final_temperature = 0.01
+        cooling_rate = 0.995
+
+        temperature = initial_temperature
+
+        while count > 0 and temperature > final_temperature:
+            # 计算当前温度（随迭代次数下降）
+            temperature = initial_temperature * (cooling_rate ** (300 - count))
+
+            # ⭐️ 获取候选被移动的块（根据温度决定随机程度）
+            candidate_blocks = []
+            pivot_blocks = self.get_blocks_by_column_id(pivot_idx)
+            for block_idx, block in enumerate(pivot_blocks):
+                start_depth = block.start_depth
+                end_depth = block.end_depth
+                gap_depth = end_depth - start_depth
+                depth_range = [start_depth, end_depth]
+                candidate_blocks.append((gap_depth, depth_range, block, block_idx))
+
+            # 根据温度决定选择策略
+            if temperature > 0.5:  # 高温阶段，更多随机性
+                # 随机选择K个块
+                if len(candidate_blocks) <= K:
+                    top_k_blocks = candidate_blocks
+                else:
+                    top_k_blocks = random.sample(candidate_blocks, K)
+            else:  # 低温阶段，选择TopK
+                # 按gap_depth降序排列
+                candidate_blocks.sort(key=lambda x: x[0], reverse=True)
+                top_k_blocks = candidate_blocks[:K]
+
+                # 在低温阶段，也以一定概率接受较差的解（模拟退火特性）
+                if random.random() < temperature and len(candidate_blocks) > K:
+                    # 以温度为概率，从剩余块中随机选择一个替换TopK中的一个
+                    remaining_blocks = candidate_blocks[K:]
+                    if remaining_blocks:
+                        # 随机替换TopK中的一个块
+                        replace_idx = random.randint(0, len(top_k_blocks) - 1)
+                        replacement = random.choice(remaining_blocks)
+                        top_k_blocks[replace_idx] = replacement
+
+            if not top_k_blocks:
+                count -= 1
+                continue
+
+            now_cost = 10000
+            final_move = None
+
+            # ⭐️ 获取目标位置
+            for gap_depth, depth_range, target_block, target_block_idx in top_k_blocks:
+                candidate_target = []
+                # [[col_idx, insert_idx, depth_range], [col_idx, insert_idx, depth_range], ...]
+                for col_idx in self.get_no_none_col():
+                    if col_idx == pivot_idx:
+                        continue
+                    # 需要统计一下可以移动到的目标位置，然后初筛-复筛-用cost function最后筛
+                    # 然后确认执行移动操作
+                    # 已有的：
+                    # from_col_idx: pivot_idx
+                    # logic_qid: target_block.logic_qid
+                    # to_col_idx: col_idx
+                    # actual_pulled_pos: target_block_idx
+                    # actual_insert_pos: 待选择
+                    blocks_of_col = self.get_blocks_by_column_id(col_idx)
+                    candidate_target.append(
+                        (
+                            col_idx,
+                            -1,
+                            [0, blocks_of_col[0].start_depth],
+                        )
+                    )
+                    for block_idx, block in enumerate(blocks_of_col):
+                        start_depth = None
+                        end_depth = None
+                        if block_idx == len(self.get_blocks_by_column_id(col_idx)) - 1:
+                            start_depth = block.end_depth
+                            end_depth = self.get_circuit_depth()
+                            candidate_target.append(
+                                (
+                                    col_idx,
+                                    block_idx,
+                                    [start_depth, end_depth],
+                                )
+                            )
+                            continue
+                        start_depth = block.end_depth
+                        end_depth = blocks_of_col[block_idx + 1].start_depth
+                        candidate_target.append(
+                            (
+                                col_idx,
+                                block_idx,
+                                [start_depth, end_depth],
+                            )
+                        )
+
+                # 根据温度调整目标选择策略
+                final_candidate_target = self.cal_match_level(
+                    (gap_depth, depth_range, target_block, target_block_idx),
+                    candidate_target,
+                )
+
+                if len(final_candidate_target) > 0:
+                    # 在高温阶段随机选择目标，在低温阶段选择最优目标
+                    if temperature > 0.5 and len(final_candidate_target) > 1:
+                        # 高温阶段，随机选择部分目标进行评估
+                        sample_size = min(5, len(final_candidate_target))
+                        selected_targets = random.sample(
+                            final_candidate_target, sample_size
+                        )
+                    else:
+                        # 低温阶段，评估所有候选目标
+                        selected_targets = final_candidate_target
+
+                    for _target in selected_targets:
+                        tmp_cost = self.cost_b_to_i(
+                            pivot_idx,
+                            target_block.logic_qid,
+                            _target[0],
+                            target_block_idx,
+                            _target[1],
+                            target_block,
+                        )
+
+                        # 模拟退火接受准则
+                        if tmp_cost < now_cost or (
+                            temperature > 0.01
+                            and random.random()
+                            < math.exp(-(tmp_cost - now_cost) / max(temperature, 0.001))
+                        ):
+                            now_cost = tmp_cost
+                            final_move = (
+                                pivot_idx,
+                                target_block.logic_qid,
+                                _target[0],
+                                target_block_idx,
+                                _target[1],
+                                target_block,
+                            )
+
+            # 执行移动（如果找到合适的移动）
+            if final_move is not None and now_cost < 0:
+                self.confirm_pull(
+                    final_move[0],
+                    final_move[1],
+                    final_move[2],
+                    final_move[3],
+                    final_move[4],
+                    final_move[5],
+                )
+            elif final_move is not None and temperature > 0.1:
+                # 即使不是改进，高温时也以一定概率接受（模拟退火特性）
+                acceptance_probability = math.exp(-abs(now_cost) / temperature)
+                if random.random() < acceptance_probability:
+                    self.confirm_pull(
+                        final_move[0],
+                        final_move[1],
+                        final_move[2],
+                        final_move[3],
+                        final_move[4],
+                        final_move[5],
+                    )
+
+            count -= 1
+
+    def cal_match_level(self, src_param, des_params):
+        # 判断深度匹配的权重
+        # src_param: (gap_depth, depth_range, block, block_idx)
+        # des_params: [(col_idx, insert_idx, depth_range), ...]
+        src_depth_range = src_param[1]
+        ret_target = []
+        for i in des_params:
+            i_depth_range = i[2]
+            if i[2][1] > src_depth_range[0] or i[2][0] < src_depth_range[1]:
+                ret_target.append(i)
+        return ret_target
+
+    def cal_cross_depth_weight(self, src_range, target_range):
+
         pass
 
     def visualize_dag(self):
@@ -280,8 +579,6 @@ class QRMoveDAG:
         arr = np.array(weights)
         sorted_indices_desc = np.argsort(arr)[::-1]
         top_indices_desc = sorted_indices_desc[:100]
-        
-        
 
         for i in top_indices_desc:
             actual_insert_pos = all_deep_range_idx[i]
@@ -426,12 +723,13 @@ class QRMoveDAG:
         actual_insert_pos,
         src_block: QRMoveDAGBlock,
     ):
-        """确认拉取,
-        from_col_idx 源列index,
-        logic_qid 源块qid,
-        to_col_idx 目标列index,
-        src_block源 块
-        actual_insert_pos 实际插入的位置"""
+        """确认拉取
+        from_col_idx 源列index
+        logic_qid 源块qid
+        to_col_idx 目标列index
+        actual_pulled_pos 实际拉取的位置
+        actual_insert_pos 实际插入的位置
+        src_block 源块"""
 
         # 目标列的所有块
         to_col_blocks = self.get_blocks_by_column_id(to_col_idx)
@@ -513,21 +811,35 @@ class QRMoveDAG:
         gate_dag = nx.DiGraph()
         for col_idx in range(len(self.matrix_column)):
             blocks_of_col = self.get_blocks_by_column_id(col_idx)
-            last_gate_id = None
-            cross_block = False
             for block_idx, block in enumerate(blocks_of_col):
                 for node in block.nodes:
                     gate_dag.add_node(
                         node.gate_id, qid=f"{node.logic_qid_a}, {node.logic_qid_b}"
                     )
+        for col_idx in range(len(self.matrix_column)):
+            blocks_of_col = self.get_blocks_by_column_id(col_idx)
+            last_gate_id = None
+            cross_block = False
+            for block_idx, block in enumerate(blocks_of_col):
+                for node in block.nodes:
                     if last_gate_id == None:
                         last_gate_id = node.gate_id
                     else:
-                        gate_dag.add_edge(
-                            last_gate_id,
-                            node.gate_id,
-                            weight=(self.mrp_time if cross_block else 1),
-                        )
+                        # 保留大的那个权重
+                        if gate_dag.has_edge(last_gate_id, node.gate_id):
+                            existing_weight = gate_dag[last_gate_id][node.gate_id][
+                                "weight"
+                            ]
+                            new_weight = self.mrp_time if cross_block else 1
+                            gate_dag[last_gate_id][node.gate_id]["weight"] = max(
+                                existing_weight, new_weight
+                            )
+                        else:
+                            gate_dag.add_edge(
+                                last_gate_id,
+                                node.gate_id,
+                                weight=(self.mrp_time if cross_block else 1),
+                            )
                         last_gate_id = node.gate_id
                         cross_block = False
                 cross_block = True
@@ -561,7 +873,7 @@ class QRMoveDAG:
                 block.start_depth = gate_depths[nodes[0].gate_id]
                 block.end_depth = gate_depths[nodes[-1].gate_id] + self.mrp_time
                 max_depth = max(max_depth, block.end_depth)
-        
+
         self.dag_leaf.start_depth = max_depth
         self.dag_leaf.end_depth = max_depth
 
@@ -569,9 +881,7 @@ class QRMoveDAG:
         for col_idx, col in enumerate(self.matrix_column):
             print(f"------------ 列{col_idx} -------------")
             for block in self.get_blocks_by_column_id(col_idx):
-                print(
-                    f"{block.logic_qid}: {block.start_depth} {block.end_depth}"
-                )
+                print(f"{block.logic_qid}: {block.start_depth} {block.end_depth}")
 
     def remove_blocks(
         self, total_blocks: list[QRMoveDAGBlock], remove_block: QRMoveDAGBlock
@@ -741,19 +1051,7 @@ class QRMoveMatrix:
 
     def get_pivot_idx(self) -> int:
         # 获取矩阵的枢轴
-        circuit_dag = self.circuit_dag
-        col_num = len(circuit_dag.matrix_column)
-        pivot_idx = -1
-        pivot_gate_sum = 0
-        for col_idx in range(col_num):
-            count = 0
-            blocks = circuit_dag.get_blocks_by_column_id(col_idx)
-            for block in blocks:
-                count += len(block.nodes)
-            if count > pivot_gate_sum:
-                pivot_gate_sum = count
-                pivot_idx = col_idx
-        return pivot_idx
+        return self.circuit_dag.get_pivot_idx()
 
     def visual_dag(self):
         self.circuit_dag.visualize_dag()
@@ -763,7 +1061,9 @@ class QRMoveMatrix:
         hp = self.hardware_params
         # 计算「测量-重置时间」和「双比特门」时间的比值
         mrp_time = math.ceil((hp.time_meas + hp.time_reset) / hp.time_2q)
-        self.circuit_dag: QRMoveDAG = QRMoveDAG(self.matrix, mrp_time)
+        self.circuit_dag: QRMoveDAG = QRMoveDAG(
+            self.matrix, mrp_time, self.quantum_chip
+        )
 
     def get_lqubit_num(self, circuit_matrix=None):
         """获取逻辑比特的数量"""
