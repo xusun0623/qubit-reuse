@@ -7,7 +7,7 @@ import pandas as pd
 import networkx as nx
 from copy import deepcopy
 import math
-from qrmove_ds import QRMoveMatrix
+from qrmove_ds import QRMoveMatrix, QRMoveDAG
 
 
 class QRMoveCompiler:
@@ -41,7 +41,9 @@ class QRMoveCompiler:
 
     def eliminate_idle_period(self):
         # Stage 2：消除气泡
-        pass
+        _dag: QRMoveDAG = self.circuit_matrix.circuit_dag  # DAG图
+        _dag.compress_depth_with_existing_qubit() # 通过已有的量子比特，对深度进行压缩
+        
 
     def pull_to_min_width(self):
         # Stage 1：拆分并组合电路、拉取以最小化电路宽度，将电路的宽度拉到极致
@@ -111,7 +113,6 @@ class QRMoveCompiler:
             ):
                 """检测是否存在周期性循环"""
                 history_len = len(history_pivot_idx)
-
                 # 检查不同长度的周期
                 for cycle_length in range(
                     min_cycle_length, min(max_cycle_length + 1, history_len // 2 + 1)
@@ -122,11 +123,9 @@ class QRMoveCompiler:
                         previous_segment = history_pivot_idx[
                             -2 * cycle_length : -cycle_length
                         ]
-
                         # 如果最近的序列与之前的序列相同，则检测到周期
                         if recent_segment == previous_segment:
                             return True, cycle_length
-
                 return False, 0
 
             # 在循环中使用 检测周期性
@@ -138,4 +137,3 @@ class QRMoveCompiler:
         # matrix.restore_matrix()
         # self.circuit_matrix.circuit_dag.print_block_depth()
         matrix.visual_dag()
-        

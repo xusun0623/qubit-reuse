@@ -55,6 +55,10 @@ class QRMoveDAG:
         self.dag_leaf.tag = "leaf"
         self.matrix_column: list[QRMoveDAGBlock] = []
         self.build_dag()
+        
+    def compress_depth_with_existing_qubit(self):
+        # 通过已有的量子比特，对深度进行压缩
+        pass
 
     def visualize_dag(self):
         G = nx.DiGraph()  # 创建一个有向无环图(DAG)
