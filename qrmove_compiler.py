@@ -29,23 +29,27 @@ class QRMoveCompiler:
             quantum_circuit, quantum_chip, hardware_params
         )
 
+    def circuit_depth(self):
+        return self.circuit_matrix.get_circuit_depth()
+
     def compile_program(self):
         # 编译程序，三阶段优化
+        # print("start depth", self.circuit_depth())
         self.pull_to_min_width()  # Stage 1：拆分并组合电路、拉取以最小化电路宽度
+        print("QR-Map", self.circuit_depth())
         self.eliminate_idle_period()  # Stage 2：消除气泡
         self.compress_depth_with_extra_qubit()  # Stage 3：通过额外的量子比特，来进行深度压缩
+        print("QR-Move", self.circuit_depth())
 
     def compress_depth_with_extra_qubit(self):
         # Stage 3：通过额外的量子比特，来进行深度压缩
         _dag: QRMoveDAG = self.circuit_matrix.circuit_dag  # DAG图
         _dag.compress_depth_with_extra_qubit()
-        pass
 
     def eliminate_idle_period(self):
         # Stage 2：消除气泡
         _dag: QRMoveDAG = self.circuit_matrix.circuit_dag  # DAG图
-        _dag.compress_depth_with_existing_qubit() # 通过已有的量子比特，对深度进行压缩
-        
+        _dag.compress_depth_with_existing_qubit()  # 通过已有的量子比特，对深度进行压缩
 
     def pull_to_min_width(self):
         # Stage 1：拆分并组合电路、拉取以最小化电路宽度，将电路的宽度拉到极致
