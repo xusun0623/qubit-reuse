@@ -62,13 +62,13 @@ class QRMoveDAG:
         """
         通过添加额外的量子比特列，使用模拟退火算法优化电路深度
         """
-        # 1. 创建一个新的列用于额外量子比特
+        # 创建一个新的列用于额外量子比特
         new_col_idx = len(self.matrix_column)
         self.matrix_column.append(QRMoveDAGBlock())  # 添加新的列头
         new_col_head = self.matrix_column[new_col_idx]
         new_col_head.column_id = new_col_idx
         
-        # 2. 设置模拟退火参数
+        # 退火参数
         initial_temperature = 1.0
         final_temperature = 0.01
         cooling_rate = 0.95
@@ -76,7 +76,7 @@ class QRMoveDAG:
         temperature = initial_temperature
         iteration = 0
         
-        # 3. 收集所有可能移动到新列的块
+        # 所有可能移动到新列的块
         candidate_blocks = []
         for col_idx in range(new_col_idx):  # 不包括新添加的列
             blocks = self.get_blocks_by_column_id(col_idx)
@@ -91,24 +91,22 @@ class QRMoveDAG:
         if not candidate_blocks:
             return
         
-        # 4. 按深度跨度排序，优先考虑跨度大的块
+        # 按深度跨度排序，优先考虑跨度大的块
         candidate_blocks.sort(key=lambda x: x[0], reverse=True)
         
-        # 5. 模拟退火主循环
         best_depth = self.get_circuit_depth()
         best_configuration = []  # 保存最佳配置
         
         while iteration < max_iterations and temperature > final_temperature:
-            # 5.1 根据温度决定选择策略
             if temperature > 0.3:  # 高温阶段，更多随机性
                 # 随机选择一些候选块
                 num_to_select = max(1, min(5, len(candidate_blocks) // 10))
                 selected_blocks = random.sample(candidate_blocks, num_to_select)
-            else:  # 低温阶段，选择深度跨度大的块
+            else:  
+                # 低温阶段，选择深度跨度大的块
                 num_to_select = max(1, min(3, len(candidate_blocks) // 20))
                 selected_blocks = candidate_blocks[:num_to_select]
             
-            # 5.2 评估移动这些块到新列的成本
             current_depth = self.get_circuit_depth()
             best_move = None
             best_delta = float('inf')
@@ -116,8 +114,6 @@ class QRMoveDAG:
             for depth_span, gate_count, col_idx, block_idx, block in selected_blocks:
                 # 评估移动这个块到新列的成本
                 before_depth = self.get_circuit_depth()
-                
-                # 检查可行性
                 if not self.feasible_by_dag_after_pull(
                     col_idx, 
                     block.logic_qid, 
@@ -152,12 +148,12 @@ class QRMoveDAG:
                     block
                 )
                 
-                # 5.3 使用模拟退火接受准则
+                # 模拟退火接受准则
                 if delta < best_delta or (temperature > 0 and random.random() < math.exp(-delta / temperature)):
                     best_delta = delta
                     best_move = (col_idx, block.logic_qid, new_col_idx, block_idx, -1, block)
             
-            # 5.4 执行最佳移动
+            # 执行最佳移动
             if best_move is not None and (best_delta < 0 or (temperature > 0.1 and random.random() < math.exp(-abs(best_delta) / temperature))):
                 self.confirm_pull(*best_move)
                 
@@ -168,19 +164,17 @@ class QRMoveDAG:
                     # 保存当前配置
                     best_configuration = [(block.column_id, block.logic_qid) for col in range(len(self.matrix_column)) for block in self.get_blocks_by_column_id(col)]
             
-            # 5.5 降温
+            # 降温
             temperature *= cooling_rate
             iteration += 1
         
-        # 6. 评估是否添加新列确实减少了深度
+        # 评估是否减少了深度
         final_depth = self.get_circuit_depth()
-        print(f"Original depth: {best_depth}, Final depth with extra qubit: {final_depth}")
+        # print(f"Original depth: {best_depth}, Final depth with extra qubit: {final_depth}")
         
-        # 7. 如果没有改善，移除新列
+        # 如果没有改善，移除新列
         if final_depth >= best_depth:
-            # 恢复到最佳配置
-            # 这部分实现可以根据需要完善，这里简化处理
-            print("No improvement with extra qubit, removing the new column")
+            # print("寄了")
             # 清空新列中的所有块
             blocks_in_new_col = self.get_blocks_by_column_id(new_col_idx)
             for block in blocks_in_new_col:
@@ -196,13 +190,9 @@ class QRMoveDAG:
                         -1,  # 简单地放回原列开头
                         block
                     )
-            
             # 移除新列
             self.matrix_column.pop(new_col_idx)
-        else:
-            print(f"Successfully reduced depth by {best_depth - final_depth} using an extra qubit")
         
-        # 8. 更新深度
         self.update_depth()
     
     

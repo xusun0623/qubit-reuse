@@ -137,7 +137,7 @@ class QRMoveCompiler:
             # 在循环中使用 检测周期性
             is_cycle, cycle_length = has_period_cycle(history_pivot_idx)
             if is_cycle:
-                print(f"检测到周期性振荡，周期长度为: {cycle_length}")
+                # print(f"周期性振荡，周期长度为: {cycle_length}")
                 break
 
         # matrix.restore_matrix()
