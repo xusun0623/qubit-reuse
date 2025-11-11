@@ -247,12 +247,12 @@ class CircuitGenerator:
         self.saveCircuitToFile(xor_circuit, f"xor_{self.n_qubits}")
 
 
-def get_quantum_circuit(circuit_type, qubit_num) -> QuantumCircuit:
+def get_quantum_circuit(quantum_alg, qubit_num) -> QuantumCircuit:
     quantum_circuit: QuantumCircuit = None
     try:
         quantum_circuit = qasm3.load(
             # 从qasm文件中加载电路
-            f"./circuits/{circuit_type}_{qubit_num}.qasm"
+            f"./circuits/{quantum_alg}_{qubit_num}.qasm"
         )
     except:
         # 如果加载失败，则生成相应类型的电路
@@ -271,13 +271,14 @@ def get_quantum_circuit(circuit_type, qubit_num) -> QuantumCircuit:
         }
 
         # 调用对应的方法生成电路
-        if circuit_type in method_map:
-            method_map[circuit_type]()
+        if quantum_alg in method_map:
+            method_map[quantum_alg]()
 
         # 尝试再次加载生成的电路文件
         try:
-            quantum_circuit = qasm3.load(f"./circuits/{circuit_type}_{qubit_num}.qasm")
+            quantum_circuit = qasm3.load(f"./circuits/{quantum_alg}_{qubit_num}.qasm")
         except:
             pass
 
     return quantum_circuit
+

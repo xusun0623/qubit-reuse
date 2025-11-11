@@ -16,6 +16,7 @@ class QRMoveCompiler:
         quantum_circuit: QuantumCircuit,
         quantum_chip: QuantumChip,
         hardware_params: HardwareParams = None,
+        extra_qubit_num: int = 0,
     ):
         """
         quantum_circuit: 待优化的量子电路，类型为 QuantumCircuit
@@ -25,6 +26,7 @@ class QRMoveCompiler:
         self.quantum_circuit: QuantumCircuit = quantum_circuit
         self.quantum_chip: QuantumChip = quantum_chip
         self.hardware_params: HardwareParams = hardware_params
+        self.extra_qubit_num = extra_qubit_num
         self.circuit_matrix: QRMoveMatrix = QRMoveMatrix(
             quantum_circuit, quantum_chip, hardware_params
         )
@@ -34,16 +36,28 @@ class QRMoveCompiler:
 
     def compile_program(self):
         # 编译程序，三阶段优化
-        # print("start depth", self.circuit_depth())
-        self.pull_to_min_width()  # Stage 1：拆分并组合电路、拉取以最小化电路宽度
-        self.circuit_matrix.visual_dag()
-        print("QR-Map", self.circuit_depth())
-        self.eliminate_idle_period()  # Stage 2：消除气泡
-        self.compress_depth_with_extra_qubit()  # Stage 3：通过额外的量子比特，来进行深度压缩
-        self.compress_depth_with_extra_qubit()  # Stage 3：通过额外的量子比特，来进行深度压缩
-        # self.compress_depth_with_extra_qubit()  # Stage 3：通过额外的量子比特，来进行深度压缩
-        # self.compress_depth_with_extra_qubit()  # Stage 3：通过额外的量子比特，来进行深度压缩
-        print("QR-Move", self.circuit_depth())
+        start_depth = self.circuit_depth()
+        start_width = self.quantum_circuit.width()
+        # Stage 1：拆分并组合电路、拉取以最小化电路宽度
+        self.pull_to_min_width()
+        # self.circuit_matrix.visual_dag()
+        qr_map_depth = self.circuit_depth()
+        qr_map_width = len(self.circuit_matrix.circuit_dag.get_no_none_col())
+        # Stage 2：消除气泡
+        self.eliminate_idle_period()
+        for _ in range(self.extra_qubit_num):
+            # Stage 3：通过额外的量子比特，来进行深度压缩
+            self.compress_depth_with_extra_qubit()
+        qr_move_depth = self.circuit_depth()
+        qr_move_width = len(self.circuit_matrix.circuit_dag.get_no_none_col())
+        return (
+            start_depth,
+            start_width,
+            qr_map_depth,
+            qr_map_width,
+            qr_move_depth,
+            qr_move_width,
+        )
 
     def compress_depth_with_extra_qubit(self):
         # Stage 3：通过额外的量子比特，来进行深度压缩
