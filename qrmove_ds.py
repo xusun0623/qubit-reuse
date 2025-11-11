@@ -67,7 +67,7 @@ class QRMoveDAG:
         self.matrix_column.append(QRMoveDAGBlock())  # 添加新的列头
         new_col_head = self.matrix_column[new_col_idx]
         new_col_head.column_id = new_col_idx
-        
+
         # 退火参数
         initial_temperature = 1.0
         final_temperature = 0.01
@@ -75,7 +75,7 @@ class QRMoveDAG:
         max_iterations = 200
         temperature = initial_temperature
         iteration = 0
-        
+
         # 所有可能移动到新列的块
         candidate_blocks = []
         for col_idx in range(new_col_idx):  # 不包括新添加的列
@@ -85,45 +85,47 @@ class QRMoveDAG:
                 depth_span = block.end_depth - block.start_depth
                 gate_count = len(block.nodes)
                 # 将块及其信息添加到候选列表
-                candidate_blocks.append((depth_span, gate_count, col_idx, block_idx, block))
-        
+                candidate_blocks.append(
+                    (depth_span, gate_count, col_idx, block_idx, block)
+                )
+
         # 如果没有候选块，直接返回
         if not candidate_blocks:
             return
-        
+
         # 按深度跨度排序，优先考虑跨度大的块
         candidate_blocks.sort(key=lambda x: x[0], reverse=True)
-        
+
         best_depth = self.get_circuit_depth()
         best_configuration = []  # 保存最佳配置
-        
+
         while iteration < max_iterations and temperature > final_temperature:
             if temperature > 0.3:  # 高温阶段，更多随机性
                 # 随机选择一些候选块
                 num_to_select = max(1, min(5, len(candidate_blocks) // 10))
                 selected_blocks = random.sample(candidate_blocks, num_to_select)
-            else:  
+            else:
                 # 低温阶段，选择深度跨度大的块
                 num_to_select = max(1, min(3, len(candidate_blocks) // 20))
                 selected_blocks = candidate_blocks[:num_to_select]
-            
+
             current_depth = self.get_circuit_depth()
             best_move = None
-            best_delta = float('inf')
-            
+            best_delta = float("inf")
+
             for depth_span, gate_count, col_idx, block_idx, block in selected_blocks:
                 # 评估移动这个块到新列的成本
                 before_depth = self.get_circuit_depth()
                 if not self.feasible_by_dag_after_pull(
-                    col_idx, 
-                    block.logic_qid, 
-                    new_col_idx, 
-                    block_idx, 
+                    col_idx,
+                    block.logic_qid,
+                    new_col_idx,
+                    block_idx,
                     -1,  # 插入到新列的开始位置
-                    block
+                    block,
                 ):
                     continue
-                
+
                 # 临时移动块
                 self.confirm_pull(
                     col_idx,
@@ -131,13 +133,13 @@ class QRMoveDAG:
                     new_col_idx,
                     block_idx,
                     -1,  # 插入到新列的头
-                    block
+                    block,
                 )
-                
+
                 # 计算移动后的新深度
                 new_depth = self.get_circuit_depth()
                 delta = new_depth - before_depth
-                
+
                 # 恢复原状，以便评估下一个移动
                 self.confirm_pull(
                     new_col_idx,
@@ -145,33 +147,52 @@ class QRMoveDAG:
                     col_idx,
                     0,  # 假设在新列中是第一个块
                     block_idx - 1 if block_idx > 0 else -1,
-                    block
+                    block,
                 )
-                
+
                 # 模拟退火接受准则
-                if delta < best_delta or (temperature > 0 and random.random() < math.exp(-delta / temperature)):
+                if delta < best_delta or (
+                    temperature > 0 and random.random() < math.exp(-delta / temperature)
+                ):
                     best_delta = delta
-                    best_move = (col_idx, block.logic_qid, new_col_idx, block_idx, -1, block)
-            
+                    best_move = (
+                        col_idx,
+                        block.logic_qid,
+                        new_col_idx,
+                        block_idx,
+                        -1,
+                        block,
+                    )
+
             # 执行最佳移动
-            if best_move is not None and (best_delta < 0 or (temperature > 0.1 and random.random() < math.exp(-abs(best_delta) / temperature))):
+            if best_move is not None and (
+                best_delta < 0
+                or (
+                    temperature > 0.1
+                    and random.random() < math.exp(-abs(best_delta) / temperature)
+                )
+            ):
                 self.confirm_pull(*best_move)
-                
+
                 # 检查是否找到了更好的配置
                 current_depth = self.get_circuit_depth()
                 if current_depth < best_depth:
                     best_depth = current_depth
                     # 保存当前配置
-                    best_configuration = [(block.column_id, block.logic_qid) for col in range(len(self.matrix_column)) for block in self.get_blocks_by_column_id(col)]
-            
+                    best_configuration = [
+                        (block.column_id, block.logic_qid)
+                        for col in range(len(self.matrix_column))
+                        for block in self.get_blocks_by_column_id(col)
+                    ]
+
             # 降温
             temperature *= cooling_rate
             iteration += 1
-        
+
         # 评估是否减少了深度
         final_depth = self.get_circuit_depth()
         # print(f"Original depth: {best_depth}, Final depth with extra qubit: {final_depth}")
-        
+
         # 如果没有改善，移除新列
         if final_depth >= best_depth:
             # print("寄了")
@@ -179,8 +200,17 @@ class QRMoveDAG:
             blocks_in_new_col = self.get_blocks_by_column_id(new_col_idx)
             for block in blocks_in_new_col:
                 # 将块移回原来的列
-                original_col = next((col for col in range(new_col_idx) 
-                                if any(b.logic_qid == block.logic_qid for b in self.get_blocks_by_column_id(col))), None)
+                original_col = next(
+                    (
+                        col
+                        for col in range(new_col_idx)
+                        if any(
+                            b.logic_qid == block.logic_qid
+                            for b in self.get_blocks_by_column_id(col)
+                        )
+                    ),
+                    None,
+                )
                 if original_col is not None:
                     self.confirm_pull(
                         new_col_idx,
@@ -188,14 +218,13 @@ class QRMoveDAG:
                         original_col,
                         self.get_block_idx_by_col_qid(new_col_idx, block.logic_qid),
                         -1,  # 简单地放回原列开头
-                        block
+                        block,
                     )
             # 移除新列
             self.matrix_column.pop(new_col_idx)
-        
+
         self.update_depth()
-    
-    
+
     def get_pivot_idx(self) -> int:
         # 获取矩阵的枢轴
         col_num = len(self.matrix_column)

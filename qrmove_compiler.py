@@ -36,9 +36,13 @@ class QRMoveCompiler:
         # 编译程序，三阶段优化
         # print("start depth", self.circuit_depth())
         self.pull_to_min_width()  # Stage 1：拆分并组合电路、拉取以最小化电路宽度
+        self.circuit_matrix.visual_dag()
         print("QR-Map", self.circuit_depth())
         self.eliminate_idle_period()  # Stage 2：消除气泡
         self.compress_depth_with_extra_qubit()  # Stage 3：通过额外的量子比特，来进行深度压缩
+        self.compress_depth_with_extra_qubit()  # Stage 3：通过额外的量子比特，来进行深度压缩
+        # self.compress_depth_with_extra_qubit()  # Stage 3：通过额外的量子比特，来进行深度压缩
+        # self.compress_depth_with_extra_qubit()  # Stage 3：通过额外的量子比特，来进行深度压缩
         print("QR-Move", self.circuit_depth())
 
     def compress_depth_with_extra_qubit(self):
