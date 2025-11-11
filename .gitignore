@@ -1,3 +1,4 @@
 __pycache__/*
 *.qasm
 nohup.out
+circuits/*
