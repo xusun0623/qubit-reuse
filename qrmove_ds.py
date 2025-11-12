@@ -57,9 +57,9 @@ class QRMoveDAG:
         self.dag_leaf.tag = "leaf"
         self.matrix_column: list[QRMoveDAGBlock] = []
         self.build_dag()
-        
+
     def get_most_block_col(self):
-        '''获取包含最多块的列索引作为枢轴列'''
+        """获取包含最多块的列索引作为枢轴列"""
         col_num = len(self.matrix_column)
         tmp_idx = -1
         max_block_count = -1
@@ -70,7 +70,7 @@ class QRMoveDAG:
                 max_block_count = block_count
                 tmp_idx = col_idx
         return tmp_idx
-        
+
     def compress_depth_with_extra_qubit(self):
         """
         通过添加额外的量子比特列，优化电路深度
@@ -87,34 +87,40 @@ class QRMoveDAG:
         for attempt in range(100):
             # 获取枢轴列（包含门最多的列）
             most_block_col = self.get_most_block_col()
-            
             # 获取枢轴列的所有块
             col_blocks = self.get_blocks_by_column_id(most_block_col)
             if not col_blocks:
                 continue
-                
             # 找到depth跨度最大的块
             max_gap_block = None
             max_gap = -1
             max_gap_idx = -1
-            
+            max_gap_blocks = []  # 存储所有具有最大gap的块
             for block_idx, block in enumerate(col_blocks):
                 gap = block.end_depth - block.start_depth
                 if gap > max_gap:
                     max_gap = gap
-                    max_gap_block = block
-                    max_gap_idx = block_idx
-            
+                    max_gap_blocks = [block_idx]  # 重置列表，只包含当前最大gap的块
+                elif gap == max_gap:
+                    max_gap_blocks.append(block_idx)  # 添加到具有相同最大gap的块列表中
+            # 如果有多个最大gap的块，随机选择一个
+            if max_gap_blocks:
+                selected_block_idx = random.choice(max_gap_blocks)
+                max_gap_block = col_blocks[selected_block_idx]
+                max_gap_idx = selected_block_idx
             if max_gap_block is None:
                 continue
-                
             # 尝试将这个块移动到新列
             # 计算在新列中的插入位置
-            actual_insert_pos = self.find_best_insert_position(new_col_idx, max_gap_block)
-            
+            actual_insert_pos = self.find_best_insert_position(
+                new_col_idx, max_gap_block
+            )
             if actual_insert_pos is None:
                 continue
-                
+            # print(
+            #     f"most_block_col: {most_block_col}, logic_qid: {max_gap_block.logic_qid}, new_col_idx: {new_col_idx}"
+            # )
+            # print(f"max_gap_idx: {max_gap_idx}, actual_insert_pos: {actual_insert_pos}")
             # 检查移动是否可行
             if not self.feasible_by_dag_after_pull(
                 most_block_col,
@@ -122,13 +128,11 @@ class QRMoveDAG:
                 new_col_idx,
                 max_gap_idx,
                 actual_insert_pos,
-                max_gap_block
+                max_gap_block,
             ):
                 continue
-                
             # 记录移动前的电路深度
             original_depth = self.get_circuit_depth()
-            
             # 执行移动
             self.confirm_pull(
                 most_block_col,
@@ -136,22 +140,19 @@ class QRMoveDAG:
                 new_col_idx,
                 max_gap_idx,
                 actual_insert_pos,
-                max_gap_block
+                max_gap_block,
             )
-            
             # 检查移动后的电路深度
             new_depth = self.get_circuit_depth()
-            
             # 如果深度没有降低，则移回去
             if new_depth >= original_depth:
-                # 移回去
                 self.confirm_pull(
                     new_col_idx,
                     max_gap_block.logic_qid,
                     most_block_col,
                     actual_insert_pos + 1,
                     max_gap_idx - 1,
-                    max_gap_block
+                    max_gap_block,
                 )
             # 如果深度降低了，则保留这次移动，继续下一次尝试
 
@@ -545,10 +546,16 @@ class QRMoveDAG:
         if len(block_pointer.next_blocks) == 0:
             # print("所在的列没有块")
             return []
+
+        visited = set()
         while (
             len(block_pointer.next_blocks) != 0
             and block_pointer.next_blocks[0].logic_qid != None
         ):
+            if id(block_pointer.next_blocks[0]) in visited:
+                pass
+                break
+            visited.add(id(block_pointer.next_blocks[0]))
             block_pointer = block_pointer.next_blocks[0]
             blocks.append(block_pointer)
         return blocks
@@ -758,6 +765,9 @@ class QRMoveDAG:
         to_col_idx 目标列index,
         src_block 源块
         actual_insert_pos 实际插入的位置"""
+        
+        if from_col_idx == to_col_idx:
+            return False
 
         gate_dag = nx.DiGraph()
 
@@ -816,6 +826,24 @@ class QRMoveDAG:
             return False
 
         return True
+
+    def circle_warning(
+        self,
+        from_col_idx,
+        logic_qid,
+        to_col_idx,
+        actual_pulled_pos,
+        actual_insert_pos,
+        src_block: QRMoveDAGBlock,
+    ):
+        # 成环、双子块告警
+        for col_idx in range(len(self.matrix_column)):
+            blocks = self.get_blocks_by_column_id(col_idx)
+            for block in blocks:
+                if len(block.next_blocks) > 1:
+                    print("双子块")
+                if block.next_blocks[0].logic_qid == block.logic_qid:
+                    print("成环")
 
     def confirm_pull(
         self,
@@ -886,6 +914,14 @@ class QRMoveDAG:
 
         # 最后一步，更新所有块和节点的深度
         self.update_depth()
+        self.circle_warning(
+            from_col_idx,
+            logic_qid,
+            to_col_idx,
+            actual_pulled_pos,
+            actual_insert_pos,
+            src_block,
+        )
 
     def visual_gate_dag(self, gate_dag: nx.DiGraph):
         """可视化 gate_dag 的拓扑结构"""
