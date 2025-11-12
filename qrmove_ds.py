@@ -57,18 +57,122 @@ class QRMoveDAG:
         self.dag_leaf.tag = "leaf"
         self.matrix_column: list[QRMoveDAGBlock] = []
         self.build_dag()
-
+        
+    def get_most_block_col(self):
+        '''获取包含最多块的列索引作为枢轴列'''
+        col_num = len(self.matrix_column)
+        tmp_idx = -1
+        max_block_count = -1
+        for col_idx in range(col_num):
+            blocks = self.get_blocks_by_column_id(col_idx)
+            block_count = len(blocks)
+            if block_count > max_block_count:
+                max_block_count = block_count
+                tmp_idx = col_idx
+        return tmp_idx
+        
     def compress_depth_with_extra_qubit(self):
         """
-        通过添加额外的量子比特列，使用模拟退火算法优化电路深度
+        通过添加额外的量子比特列，优化电路深度
         """
-        # 创建一个新的列用于额外量子比特
         none_col = []
         for idx, i in enumerate(self.matrix_column):
             if len(self.get_blocks_by_column_id(idx)) == 0:
                 none_col.append(idx)
-        new_col_idx = none_col[0]  # 选一个新的列
+        if not none_col:
+            return
+        new_col_idx = none_col[0]
         all_col_num = len(self.matrix_column)
+        # 进行100次尝试
+        for attempt in range(100):
+            # 获取枢轴列（包含门最多的列）
+            most_block_col = self.get_most_block_col()
+            
+            # 获取枢轴列的所有块
+            col_blocks = self.get_blocks_by_column_id(most_block_col)
+            if not col_blocks:
+                continue
+                
+            # 找到depth跨度最大的块
+            max_gap_block = None
+            max_gap = -1
+            max_gap_idx = -1
+            
+            for block_idx, block in enumerate(col_blocks):
+                gap = block.end_depth - block.start_depth
+                if gap > max_gap:
+                    max_gap = gap
+                    max_gap_block = block
+                    max_gap_idx = block_idx
+            
+            if max_gap_block is None:
+                continue
+                
+            # 尝试将这个块移动到新列
+            # 计算在新列中的插入位置
+            actual_insert_pos = self.find_best_insert_position(new_col_idx, max_gap_block)
+            
+            if actual_insert_pos is None:
+                continue
+                
+            # 检查移动是否可行
+            if not self.feasible_by_dag_after_pull(
+                most_block_col,
+                max_gap_block.logic_qid,
+                new_col_idx,
+                max_gap_idx,
+                actual_insert_pos,
+                max_gap_block
+            ):
+                continue
+                
+            # 记录移动前的电路深度
+            original_depth = self.get_circuit_depth()
+            
+            # 执行移动
+            self.confirm_pull(
+                most_block_col,
+                max_gap_block.logic_qid,
+                new_col_idx,
+                max_gap_idx,
+                actual_insert_pos,
+                max_gap_block
+            )
+            
+            # 检查移动后的电路深度
+            new_depth = self.get_circuit_depth()
+            
+            # 如果深度没有降低，则移回去
+            if new_depth >= original_depth:
+                # 移回去
+                self.confirm_pull(
+                    new_col_idx,
+                    max_gap_block.logic_qid,
+                    most_block_col,
+                    actual_insert_pos + 1,
+                    max_gap_idx - 1,
+                    max_gap_block
+                )
+            # 如果深度降低了，则保留这次移动，继续下一次尝试
+
+    def find_best_insert_position(self, col_idx, block: QRMoveDAGBlock):
+        """
+        在指定列中找到最佳插入位置，基于gate_id的顺序关系
+        """
+        col_blocks = self.get_blocks_by_column_id(col_idx)
+        if len(col_blocks) == 0:
+            return -1  # 插入到开头
+        # 获取目标块的最后一个gate_id
+        target_last_gate_id = block.nodes[-1].gate_id if block.nodes else 0
+        # 遍历列中的所有块，找到第一个合适的插入位置
+        for i, col_block in enumerate(col_blocks):
+            # 获取当前块的第一个gate_id
+            current_first_gate_id = col_block.nodes[0].gate_id if col_block.nodes else 0
+            # 如果当前块的第一个gate_id大于等于目标块的最后一个gate_id，则可以插入到这个位置之前
+            if current_first_gate_id >= target_last_gate_id:
+                return i - 1  # 插入到第i个块之前
+        # 如果没有找到合适的位置，插入到最后
+        return len(col_blocks) - 1
 
     def get_pivot_idx(self) -> int:
         # 获取矩阵的枢轴
